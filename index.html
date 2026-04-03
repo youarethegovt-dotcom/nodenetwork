@@ -1,0 +1,2811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESa Team Network</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .esa-teal { background-color: #375E74; }
+    .esa-orange { background-color: #E87A1E; }
+
+    #network-container {
+      width: 100%;
+      height: calc(100vh - 200px);
+      min-height: 500px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .node-project { cursor: pointer; }
+    .node-employee { cursor: pointer; }
+    .node-project:hover, .node-employee:hover { filter: brightness(1.2); }
+
+    .link {
+      stroke: rgba(255, 255, 255, 0.2);
+      stroke-width: 1.5px;
+    }
+    .link.highlighted {
+      stroke: #E87A1E;
+      stroke-width: 3px;
+      stroke-opacity: 1;
+    }
+
+    .node-label {
+      font-size: 11px;
+      fill: white;
+      text-anchor: middle;
+      pointer-events: none;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+
+    /* FIX #5 & #6: Separate tooltip and toast elements */
+    .tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      pointer-events: none;
+      z-index: 100;
+      max-width: 300px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      pointer-events: none;
+      z-index: 200;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      transition: opacity 0.3s ease;
+    }
+
+    .dragging { cursor: grabbing !important; }
+
+    .drop-target {
+      filter: brightness(1.5) drop-shadow(0 0 10px #E87A1E);
+    }
+
+    /* Link interactions - thicker hover target */
+    .link { cursor: default; }
+    .link-hover-target {
+      stroke: transparent;
+      stroke-width: 16px;
+      cursor: pointer;
+      fill: none;
+    }
+    .link-hover-target:hover + .link,
+    .link.link-hovered {
+      stroke: rgba(255, 255, 255, 0.5);
+      stroke-width: 2.5px;
+    }
+
+    /* Floating assignment form */
+    .assign-form {
+      position: absolute;
+      z-index: 80;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      width: 360px;
+      overflow: hidden;
+      animation: formSlideIn 0.2s ease;
+    }
+    @keyframes formSlideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .assign-form-header {
+      padding: 12px 16px;
+      background: #375E74;
+      color: white;
+    }
+    .assign-form-body {
+      padding: 16px;
+    }
+    .assign-form select, .assign-form input {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    .assign-form select:focus, .assign-form input:focus {
+      outline: none;
+      border-color: #375E74;
+      box-shadow: 0 0 0 2px rgba(55, 94, 116, 0.2);
+    }
+    .assign-form label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    /* Context menu for right-click on links */
+    .context-menu {
+      position: absolute;
+      z-index: 90;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      min-width: 200px;
+      overflow: hidden;
+      animation: formSlideIn 0.15s ease;
+    }
+    .context-menu-item {
+      padding: 10px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.1s;
+    }
+    .context-menu-item:hover {
+      background: #f3f4f6;
+    }
+    .context-menu-item.danger {
+      color: #dc2626;
+    }
+    .context-menu-item.danger:hover {
+      background: #fef2f2;
+    }
+    .context-menu-separator {
+      height: 1px;
+      background: #e5e7eb;
+    }
+
+    /* Confirm dialog */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .confirm-dialog {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      width: 380px;
+      max-width: 90vw;
+      overflow: hidden;
+    }
+
+    /* Side Panel */
+    .side-panel {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 320px;
+      height: 100%;
+      background: rgba(255,255,255,0.95);
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      overflow-y: auto;
+      z-index: 50;
+    }
+    .side-panel.open { transform: translateX(0); }
+
+    /* Legend */
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 12px 16px;
+      border-radius: 8px;
+      color: white;
+      font-size: 12px;
+    }
+
+    /* Search highlight */
+    .search-match {
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.5); }
+    }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      z-index: 60;
+      border-radius: 12px;
+      transition: opacity 0.5s ease;
+    }
+    .loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.2);
+      border-top-color: #E87A1E;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Debug panel toggle */
+    .debug-toggle {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      z-index: 999;
+      opacity: 0.1;
+      transition: opacity 0.2s;
+      font-size: 10px;
+    }
+    .debug-toggle:hover { opacity: 0.5; }
+
+    /* Password Gate */
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .auth-overlay.hidden { display: none; }
+    .auth-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      width: 380px;
+      max-width: 90vw;
+      overflow: hidden;
+    }
+    .auth-card-header {
+      background: #375E74;
+      padding: 28px 32px;
+      text-align: center;
+    }
+    .auth-card-body {
+      padding: 32px;
+    }
+    .auth-input {
+      width: 100%;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 15px;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    .auth-input:focus {
+      border-color: #375E74;
+    }
+    .auth-input.error {
+      border-color: #ef4444;
+      animation: shake 0.3s ease;
+    }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+    .auth-btn {
+      width: 100%;
+      padding: 12px;
+      background: #375E74;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .auth-btn:hover { background: #2d4e62; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Password Gate -->
+  <div id="authOverlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-card-header">
+        <div style="width:48px; height:48px; background:rgba(255,255,255,0.15); border-radius:12px; display:flex; align-items:center; justify-content:center; margin:0 auto 12px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L16 7m-8 8l-1.5 1.5m0-11L8 7m8 8l1.5 1.5"/></svg>
+        </div>
+        <div style="color:white; font-size:20px; font-weight:700;">ESa Team Network</div>
+        <div style="color:rgba(255,255,255,0.6); font-size:13px; margin-top:4px;">Enter password to continue</div>
+      </div>
+      <div class="auth-card-body">
+        <div style="margin-bottom:16px;">
+          <input type="password" id="authPassword" class="auth-input" placeholder="Password" 
+                 onkeydown="if(event.key==='Enter')checkPassword()">
+          <div id="authError" style="color:#ef4444; font-size:13px; margin-top:8px; display:none;">Incorrect password</div>
+        </div>
+        <button onclick="checkPassword()" class="auth-btn">Sign In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Content (hidden until authenticated) -->
+  <div id="appContent" style="display:none;">
+  <!-- Header -->
+  <div class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 esa-teal rounded-lg flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L16 7m-8 8l-1.5 1.5m0-11L8 7m8 8l1.5 1.5"/></svg>
+          </div>
+          <div>
+            <h1 class="text-xl font-bold text-gray-800">ESa Team Network</h1>
+            <p class="text-sm text-gray-500">Visualize project and team relationships</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <!-- Search -->
+          <div class="relative" id="searchContainer">
+            <input type="text" id="searchInput" placeholder="Search projects or people..."
+                   class="w-64 pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   oninput="handleSearchInput(this.value)"
+                   onfocus="showSearchResults()"
+                   autocomplete="off">
+            <svg class="absolute left-3 top-2.5 text-gray-400" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <div id="searchResults" class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-80 overflow-y-auto z-50 hidden"></div>
+          </div>
+
+          <!-- Filter -->
+          <select id="departmentFilter" class="border rounded-lg px-3 py-2 text-sm" onchange="filterByDepartment(this.value)">
+            <option value="">All Departments</option>
+          </select>
+
+          <!-- View Mode -->
+          <div class="flex border rounded-lg overflow-hidden">
+            <button onclick="setViewMode('all')" id="viewAll" class="px-3 py-2 text-sm bg-gray-800 text-white">All</button>
+            <button onclick="setViewMode('projects')" id="viewProjects" class="px-3 py-2 text-sm bg-white text-gray-700 hover:bg-gray-100">Projects</button>
+            <button onclick="setViewMode('people')" id="viewPeople" class="px-3 py-2 text-sm bg-white text-gray-700 hover:bg-gray-100">People</button>
+          </div>
+
+          <!-- Reset -->
+          <button onclick="resetView()" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-100">Reset View</button>
+
+          <!-- Load / Clear All -->
+          <div class="relative" id="loadMenuContainer">
+            <button onclick="toggleLoadMenu()" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-100 flex items-center gap-1">
+              Graph
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div id="loadMenu" class="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 hidden w-56 overflow-hidden">
+              <div class="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">LOAD INTO GRAPH</div>
+              <button onclick="loadAllProjects()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-blue-500"></span> All Projects
+              </button>
+              <button onclick="loadAllEmployees()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-green-50 flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-green-500"></span> All Employees
+              </button>
+              <button onclick="loadEverything()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-purple-50 flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-purple-500"></span> Everything
+              </button>
+              <div class="border-t"></div>
+              <div class="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">CLEAR FROM GRAPH</div>
+              <button onclick="clearUnconnected()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-yellow-50 flex items-center gap-2">
+                <span class="text-yellow-500">◑</span> Remove Unconnected
+              </button>
+              <button onclick="clearAllNodes()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
+                <span>✕</span> Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- Debug Panel (hidden by default, toggled via corner button) -->
+    <div id="debugPanel" class="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 mb-4 hidden">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-bold text-yellow-800">🔍 Debug Panel</div>
+        <button onclick="toggleDebug()" class="text-yellow-600 hover:text-yellow-800 text-sm">Hide</button>
+      </div>
+      <div id="debugInfo" class="text-sm text-yellow-700 font-mono whitespace-pre-wrap">Waiting for page load...</div>
+      <div class="mt-3 pt-3 border-t border-yellow-300 flex gap-2">
+        <button onclick="testSupabase()" class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">Test Supabase</button>
+        <button onclick="showArrays()" class="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">Show Arrays</button>
+        <button onclick="reloadData()" class="px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600">Reload Data</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-2xl font-bold text-blue-600" id="statProjects">0</div>
+        <div class="text-sm text-gray-500">Active Projects</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-2xl font-bold text-green-600" id="statPeople">0</div>
+        <div class="text-sm text-gray-500">Team Members</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-2xl font-bold text-purple-600" id="statConnections">0</div>
+        <div class="text-sm text-gray-500">Assignments</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-2xl font-bold text-orange-600" id="statAvgTeam">0</div>
+        <div class="text-sm text-gray-500">Avg Team Size</div>
+      </div>
+    </div>
+
+    <!-- Network Visualization -->
+    <div id="network-container">
+      <!-- Loading overlay (FIX #9) -->
+      <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner mb-4"></div>
+        <div class="text-white text-sm" id="loadingStatus">Connecting to database...</div>
+      </div>
+
+      <svg id="network-svg" width="100%" height="100%"></svg>
+
+      <!-- Tooltip (FIX #5: positioned relative to container) -->
+      <div id="tooltip" class="tooltip" style="display: none;"></div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-4 h-4 rounded-full" style="background: #3B82F6;"></div>
+          <span>Project <span class="text-gray-500">(size = hrs remaining)</span></span>
+        </div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-4 h-4 rounded-full" style="background: #10B981;"></div>
+          <span>Employee</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-0.5" style="background: #E87A1E;"></div>
+          <span>Assignment</span>
+        </div>
+        <div class="mt-3 pt-3 border-t border-gray-600 text-xs text-gray-400">
+          Click node to view details<br>
+          Drag onto node to assign<br>
+          Right-click link to remove
+        </div>
+      </div>
+
+      <!-- Side Panel -->
+      <div id="sidePanel" class="side-panel">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h3 id="panelTitle" class="font-bold text-gray-800">Details</h3>
+          <button onclick="closeSidePanel()" class="text-gray-400 hover:text-gray-600">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="panelContent" class="p-4"></div>
+      </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="mt-4 text-center text-sm text-gray-500">
+      <strong>Tip:</strong> Drag any node onto another to create assignments. Right-click a link to remove it. Click a node for details + bulk management.
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" style="display: none;"></div>
+
+  <!-- Floating Assignment Form -->
+  <div id="assignForm" class="assign-form" style="display: none;">
+    <div class="assign-form-header">
+      <div class="font-semibold text-sm" id="assignFormTitle">Assign to Project</div>
+      <div class="text-xs text-blue-200 mt-0.5" id="assignFormSubtitle"></div>
+    </div>
+    <div class="assign-form-body" id="assignFormBody">
+      <!-- Dynamically populated with phase checkboxes -->
+    </div>
+  </div>
+
+  <!-- Right-click Context Menu -->
+  <div id="contextMenu" class="context-menu" style="display: none;"></div>
+
+  <!-- Confirm Dialog -->
+  <div id="confirmOverlay" class="confirm-overlay" style="display: none;">
+    <div class="confirm-dialog">
+      <div class="p-4 border-b">
+        <div class="font-bold text-gray-800" id="confirmTitle">Confirm</div>
+        <div class="text-sm text-gray-500 mt-1" id="confirmMessage"></div>
+      </div>
+      <div class="flex border-t">
+        <button onclick="confirmDialogCancel()" class="flex-1 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+        <button onclick="confirmDialogOK()" id="confirmOKBtn" class="flex-1 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 border-l">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug toggle button (subtle corner button) -->
+  <button onclick="toggleDebug()" class="debug-toggle px-2 py-1 bg-yellow-400 text-yellow-900 rounded text-xs">🔍</button>
+
+  </div><!-- end #appContent -->
+
+  <script>
+    // ===== PASSWORD GATE =====
+    // SHA-256 hash of the password (change this to your own hash)
+    // To generate: open browser console, run:
+    //   crypto.subtle.digest('SHA-256', new TextEncoder().encode('YOUR_PASSWORD')).then(h => console.log(Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('')))
+    const PASSWORD_HASH = '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'; // "password"
+
+    async function hashPassword(pw) {
+      const encoded = new TextEncoder().encode(pw);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function checkPassword() {
+      const input = document.getElementById('authPassword');
+      const errorEl = document.getElementById('authError');
+      const pw = input.value;
+
+      if (!pw) {
+        input.classList.add('error');
+        setTimeout(() => input.classList.remove('error'), 300);
+        return;
+      }
+
+      const hash = await hashPassword(pw);
+
+      if (hash === PASSWORD_HASH) {
+        // Authenticated — store in session so refresh doesn't re-prompt
+        sessionStorage.setItem('esa_auth', 'true');
+        showApp();
+      } else {
+        input.classList.add('error');
+        errorEl.style.display = 'block';
+        setTimeout(() => input.classList.remove('error'), 300);
+        input.value = '';
+        input.focus();
+      }
+    }
+
+    let appInitialized = false;
+
+    function showApp() {
+      document.getElementById('authOverlay').classList.add('hidden');
+      document.getElementById('appContent').style.display = '';
+
+      // Init the app after the content is visible (so D3 can measure container size)
+      if (!appInitialized) {
+        appInitialized = true;
+        // Small delay to let the DOM reflow so container has dimensions
+        setTimeout(() => init(), 50);
+      } else {
+        // Already initialized, just re-render in case container was resized
+        const container = document.getElementById('network-container');
+        if (container && svg) {
+          svg.attr('width', container.clientWidth).attr('height', container.clientHeight);
+          if (simulation) {
+            simulation.force('center', d3.forceCenter(container.clientWidth / 2, container.clientHeight / 2));
+            simulation.alpha(0.3).restart();
+          }
+        }
+      }
+    }
+
+    // Check if already authenticated this session
+    if (sessionStorage.getItem('esa_auth') === 'true') {
+      // Wait for DOM before showing app
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() { showApp(); });
+      } else {
+        showApp();
+      }
+    } else {
+      // Focus password input on load
+      document.addEventListener('DOMContentLoaded', function() {
+        const pwInput = document.getElementById('authPassword');
+        if (pwInput) setTimeout(() => pwInput.focus(), 100);
+      });
+    }
+
+    // ===== APP CODE =====
+
+    // Supabase connection
+    const SUPABASE_URL = "https://cfyijoveheyznubkyool.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNmeWlqb3ZlaGV5em51Ymt5b29sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMzI2MzEsImV4cCI6MjA4NzcwODYzMX0.3im2SyxvoLRCruws0-dyk2dRmsr-ew_-UqHS7_83tBA";
+
+    let db = null;
+    try {
+      if (window.supabase && window.supabase.createClient) {
+        db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    } catch (e) {
+      console.error('Supabase init error:', e);
+    }
+
+    // Data
+    let projects = [];
+    let employees = [];
+    let teams = [];
+    let schedule = [];
+    let actuals = [];
+    let nodes = [];
+    let links = [];
+    let simulation;
+    let svg, g, linkGroup, nodeGroup, labelGroup;
+    let link, node, labels;
+    let selectedNode = null;
+    let viewMode = 'all';
+    let draggedNode = null;
+    let dropTarget = null;
+    let toastTimeout = null;
+    let hiddenPhases = new Set(); // Track toggled-off phases per project: "projNum|phase"
+
+    // ===== DEBUG =====
+
+    function toggleDebug() {
+      document.getElementById('debugPanel').classList.toggle('hidden');
+    }
+
+    function debugLog(msg) {
+      const el = document.getElementById('debugInfo');
+      if (el) el.innerHTML = msg;
+      console.log('[ESaNet]', msg.replace(/<br>/g, '\n'));
+    }
+
+    // ===== LOADING =====
+
+    function setLoadingStatus(msg) {
+      const el = document.getElementById('loadingStatus');
+      if (el) el.textContent = msg;
+    }
+
+    function hideLoading() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (overlay) {
+        overlay.classList.add('fade-out');
+        setTimeout(() => overlay.style.display = 'none', 500);
+      }
+    }
+
+    // ===== INIT =====
+
+    async function init() {
+      debugLog('Initializing...');
+
+      // Check required libraries loaded
+      const missing = [];
+      if (typeof d3 === 'undefined') missing.push('D3.js');
+      if (!window.supabase || !window.supabase.createClient) missing.push('Supabase JS');
+
+      if (missing.length > 0) {
+        const msg = 'Required libraries failed to load: ' + missing.join(', ') + 
+          '.\n\nThis file must be opened directly in a browser (Chrome/Safari) — ' +
+          'it cannot run inside an embedded preview.\n\n' +
+          'Download the file and open it from your computer.';
+        debugLog('ERROR: ' + msg.replace(/\n/g, '<br>'));
+        setLoadingStatus('⚠ ' + missing.join(' & ') + ' not available. Download this file and open in your browser.');
+        return;
+      }
+
+      // Re-init Supabase client if needed
+      if (!db) {
+        try {
+          db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        } catch (e) {
+          debugLog('ERROR: Failed to create Supabase client: ' + e.message);
+          setLoadingStatus('Database connection failed.');
+          return;
+        }
+      }
+
+      setLoadingStatus('Loading employees, projects, and teams...');
+      await loadData();
+
+      if (employees.length === 0 && projects.length === 0) {
+        debugLog('WARNING: No data loaded. Open debug panel to troubleshoot.');
+        setLoadingStatus('No data loaded. Check connection.');
+        return;
+      }
+
+      setLoadingStatus('Building network graph...');
+      buildGraph();
+      renderNetwork();
+      updateStats();
+      populateDepartmentFilter();
+      hideLoading();
+    }
+
+    // ===== LOAD DATA =====
+
+    async function loadData() {
+      if (!db) {
+        debugLog('ERROR: Supabase JS client not initialized. Check that the library loaded.');
+        setLoadingStatus('Database connection failed.');
+        return;
+      }
+
+      try {
+        setLoadingStatus('Loading employees...');
+        const { data: empData, error: empError } = await db
+          .from('employees')
+          .select('name, employee_number, email, department')
+          .neq('active', false)
+          .order('name');
+        if (empError) throw new Error('Employees: ' + empError.message);
+        employees = empData || [];
+
+        setLoadingStatus('Loading projects...');
+        const { data: projData, error: projError } = await db
+          .from('projects')
+          .select('project_number, project_name, pm, dm, principal')
+          .order('project_number');
+        if (projError) throw new Error('Projects: ' + projError.message);
+        projects = projData || [];
+
+        setLoadingStatus('Loading team assignments...');
+        const { data: teamData, error: teamError } = await db
+          .from('teams')
+          .select('project_number, phase, employee_number, employee_name, base_hrs_per_week')
+          .order('project_number');
+        if (teamError) throw new Error('Teams: ' + teamError.message);
+        teams = teamData || [];
+
+        setLoadingStatus('Loading schedule...');
+        const { data: schedData, error: schedError } = await db
+          .from('schedule')
+          .select('id, project_number, phase, phase_start, phase_end, budgeted_hours, active')
+          .order('project_number');
+        if (schedError) throw new Error('Schedule: ' + schedError.message);
+        schedule = schedData || [];
+
+        setLoadingStatus('Loading actuals...');
+        const { data: actData, error: actError } = await db
+          .from('actuals')
+          .select('project_number, actual_hours');
+        if (actError) throw new Error('Actuals: ' + actError.message);
+        actuals = actData || [];
+
+        debugLog('Loaded: ' + employees.length + ' employees, ' + projects.length + ' projects, ' + teams.length + ' teams, ' + schedule.length + ' phases, ' + actuals.length + ' actuals');
+
+      } catch (err) {
+        console.error('loadData error:', err);
+        debugLog('Load error: ' + String(err.message));
+      }
+    }
+
+    // ===== HELPERS =====
+
+    function normalizeProjectNumber(num) {
+      if (!num) return '';
+      const str = String(num).trim();
+      if (/^[\d.]+$/.test(str)) {
+        const parsed = parseFloat(str);
+        if (!isNaN(parsed)) return parsed.toFixed(2);
+      }
+      return str.toLowerCase();
+    }
+
+    function truncateLabel(text, maxLen) {
+      if (!text) return '';
+      return text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
+    }
+
+    // ===== GRAPH BUILDING =====
+
+    function buildGraph() {
+      nodes = [];
+      links = [];
+
+      // Pre-compute remaining hours per project:
+      // remaining = sum(budgeted_hours for active phases) - sum(actual_hours)
+      const projectRemainingHours = {};
+
+      // Sum budgeted hours per project (active phases only)
+      const projectBudgeted = {};
+      schedule.forEach(s => {
+        if (s.active === false) return;
+        const normNum = normalizeProjectNumber(s.project_number);
+        projectBudgeted[normNum] = (projectBudgeted[normNum] || 0) + (Number(s.budgeted_hours) || 0);
+      });
+
+      // Sum actual hours per project
+      const projectActuals = {};
+      actuals.forEach(a => {
+        const normNum = normalizeProjectNumber(a.project_number);
+        projectActuals[normNum] = (projectActuals[normNum] || 0) + (Number(a.actual_hours) || 0);
+      });
+
+      // Calculate remaining
+      Object.keys(projectBudgeted).forEach(normNum => {
+        const budgeted = projectBudgeted[normNum] || 0;
+        const actual = projectActuals[normNum] || 0;
+        projectRemainingHours[normNum] = Math.max(0, budgeted - actual);
+      });
+
+      // Calculate radius scale:
+      // Default (no hours data) = 25
+      // Scale from 25 up to 55 based on remaining hours relative to max
+      const DEFAULT_RADIUS = 25;
+      const MAX_RADIUS = 55;
+      const remainingValues = Object.values(projectRemainingHours).filter(v => v > 0);
+      const maxRemaining = remainingValues.length > 0 ? Math.max(...remainingValues) : 0;
+
+      function getProjectRadius(normNum) {
+        const remaining = projectRemainingHours[normNum];
+        if (!remaining || remaining <= 0 || maxRemaining <= 0) return DEFAULT_RADIUS;
+        // Scale: sqrt for visual area proportionality
+        const scale = Math.sqrt(remaining / maxRemaining);
+        return DEFAULT_RADIUS + scale * (MAX_RADIUS - DEFAULT_RADIUS);
+      }
+
+      // Projects that have team assignments
+      const projectsInTeams = new Set(teams.map(t => normalizeProjectNumber(t.project_number)));
+
+      projects.forEach(p => {
+        const normNum = normalizeProjectNumber(p.project_number);
+        if (projectsInTeams.has(normNum)) {
+          const remaining = projectRemainingHours[normNum] || 0;
+          const radius = getProjectRadius(normNum);
+          nodes.push({
+            id: 'proj-' + normNum,
+            type: 'project',
+            label: p.project_name || p.project_number,
+            number: p.project_number,
+            data: p,
+            radius: radius,
+            remainingHours: remaining,
+            budgetedHours: projectBudgeted[normNum] || 0,
+            actualHours: projectActuals[normNum] || 0
+          });
+        }
+      });
+
+      // Employees that have team assignments
+      const employeesInTeams = new Set(teams.map(t => t.employee_number));
+
+      employees.forEach(e => {
+        if (employeesInTeams.has(e.employee_number)) {
+          nodes.push({
+            id: 'emp-' + e.employee_number,
+            type: 'employee',
+            label: e.name,
+            number: e.employee_number,
+            department: e.department,
+            data: e,
+            radius: 18
+          });
+        }
+      });
+
+      // Links from teams
+      teams.forEach(t => {
+        const projId = 'proj-' + normalizeProjectNumber(t.project_number);
+        const empId = 'emp-' + t.employee_number;
+
+        if (nodes.find(n => n.id === projId) && nodes.find(n => n.id === empId)) {
+          links.push({
+            source: projId,
+            target: empId,
+            phase: t.phase,
+            hours: t.base_hrs_per_week
+          });
+        }
+      });
+    }
+
+    // ===== RENDER NETWORK =====
+
+    function renderNetwork() {
+      const container = document.getElementById('network-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg = d3.select('#network-svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      svg.selectAll('*').remove();
+
+      // Container group for zoom/pan
+      g = svg.append('g');
+
+      // FIX #3/#4: Create dedicated groups for proper layering & data joins
+      linkGroup = g.append('g').attr('class', 'links');
+      nodeGroup = g.append('g').attr('class', 'nodes');
+      labelGroup = g.append('g').attr('class', 'labels');
+
+      // Zoom behavior
+      const zoom = d3.zoom()
+        .scaleExtent([0.2, 4])
+        .on('zoom', (event) => {
+          g.attr('transform', event.transform);
+        });
+      svg.call(zoom);
+
+      // Store zoom for external use (resetView, focusOnNode)
+      svg.__zoom_behavior = zoom;
+
+      // Force simulation
+      simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(120))
+        .force('charge', d3.forceManyBody().strength(-300))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => d.radius + 10));
+
+      // Invisible wide hover targets for links
+      linkGroup.selectAll('.link-hover-target')
+        .data(links)
+        .enter().append('line')
+        .attr('class', 'link-hover-target')
+        .on('contextmenu', handleLinkContext)
+        .on('mouseover', function() {
+          d3.select(this.nextSibling).classed('link-hovered', true);
+        })
+        .on('mouseout', function() {
+          linkGroup.selectAll('.link').classed('link-hovered', false);
+        });
+
+      // Draw visible links
+      link = linkGroup.selectAll('.link')
+        .data(links)
+        .enter().append('line')
+        .attr('class', 'link')
+        .on('contextmenu', handleLinkContext);
+
+      // Draw nodes
+      node = nodeGroup.selectAll('circle')
+        .data(nodes)
+        .enter().append('circle')
+        .attr('r', d => d.radius)
+        .attr('fill', d => d.type === 'project' ? '#3B82F6' : '#10B981')
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2)
+        .attr('class', d => d.type === 'project' ? 'node-project' : 'node-employee')
+        .on('click', handleNodeClick)
+        .on('mouseover', handleNodeHover)
+        .on('mouseout', handleNodeOut)
+        .call(d3.drag()
+          .on('start', dragStarted)
+          .on('drag', dragged)
+          .on('end', dragEnded));
+
+      // Draw labels
+      labels = labelGroup.selectAll('text')
+        .data(nodes)
+        .enter().append('text')
+        .attr('class', 'node-label')
+        .attr('dy', d => d.radius + 14)
+        .text(d => truncateLabel(d.label, 15));
+
+      // Tick
+      simulation.on('tick', () => {
+        linkGroup.selectAll('.link-hover-target')
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        link
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        node
+          .attr('cx', d => d.x)
+          .attr('cy', d => d.y);
+
+        labels
+          .attr('x', d => d.x)
+          .attr('y', d => d.y);
+      });
+    }
+
+    // ===== NODE INTERACTIONS =====
+
+    function handleNodeClick(event, d) {
+      event.stopPropagation();
+
+      // Reset highlights
+      link.classed('highlighted', false);
+      node.classed('search-match', false);
+
+      // Highlight connections
+      link.classed('highlighted', l =>
+        l.source.id === d.id || l.target.id === d.id
+      );
+
+      const connectedLinks = links.filter(l =>
+        l.source.id === d.id || l.target.id === d.id
+      );
+
+      showSidePanel(d, connectedLinks);
+      selectedNode = d;
+    }
+
+    // FIX #5: Tooltip positioned relative to network-container
+    function handleNodeHover(event, d) {
+      const tooltip = document.getElementById('tooltip');
+      const container = document.getElementById('network-container');
+      const containerRect = container.getBoundingClientRect();
+
+      let content = '';
+      if (d.type === 'project') {
+        const teamCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length;
+        const remainingInfo = d.remainingHours > 0
+          ? '<div class="mt-1 text-xs text-blue-300">' + d.remainingHours.toLocaleString() + ' hrs remaining</div>' +
+            '<div class="text-xs text-gray-400">' + (d.actualHours || 0).toLocaleString() + ' / ' + (d.budgetedHours || 0).toLocaleString() + ' budgeted</div>'
+          : d.budgetedHours > 0
+            ? '<div class="mt-1 text-xs text-green-300">Budget complete</div>'
+            : '';
+        content = '<div class="font-bold">' + d.label + '</div>' +
+          '<div class="text-gray-300 text-sm">' + d.number + '</div>' +
+          '<div class="mt-1">' + teamCount + ' team member' + (teamCount !== 1 ? 's' : '') + '</div>' +
+          remainingInfo;
+      } else {
+        const projectCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length;
+        content = '<div class="font-bold">' + d.label + '</div>' +
+          '<div class="text-gray-300 text-sm">' + (d.department || 'No department') + '</div>' +
+          '<div class="mt-1">' + projectCount + ' project' + (projectCount !== 1 ? 's' : '') + '</div>';
+      }
+
+      tooltip.innerHTML = content;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (event.clientX - containerRect.left + 12) + 'px';
+      tooltip.style.top = (event.clientY - containerRect.top - 10) + 'px';
+    }
+
+    function handleNodeOut() {
+      document.getElementById('tooltip').style.display = 'none';
+    }
+
+    // ===== DRAG & DROP =====
+
+    // Store original positions so we can restore on drag end
+    let frozenPositions = null;
+
+    function dragStarted(event, d) {
+      // Stop the simulation completely
+      simulation.stop();
+
+      // Freeze every node in place by pinning their current position
+      frozenPositions = new Map();
+      nodes.forEach(n => {
+        frozenPositions.set(n.id, { fx: n.fx, fy: n.fy });
+        n.fx = n.x;
+        n.fy = n.y;
+      });
+
+      // The dragged node follows the cursor
+      d.fx = d.x;
+      d.fy = d.y;
+      draggedNode = d;
+      document.body.classList.add('dragging');
+    }
+
+    function dragged(event, d) {
+      // Only the dragged node moves
+      d.fx = event.x;
+      d.fy = event.y;
+
+      // Manually update its visual position (simulation is stopped)
+      d.x = event.x;
+      d.y = event.y;
+
+      // Update just the dragged node + its links visually
+      nodeGroup.selectAll('circle')
+        .filter(n => n.id === d.id)
+        .attr('cx', d.x)
+        .attr('cy', d.y);
+
+      labelGroup.selectAll('text')
+        .filter(n => n.id === d.id)
+        .attr('x', d.x)
+        .attr('y', d.y);
+
+      // Update all links connected to dragged node
+      linkGroup.selectAll('.link')
+        .attr('x1', l => l.source.x)
+        .attr('y1', l => l.source.y)
+        .attr('x2', l => l.target.x)
+        .attr('y2', l => l.target.y);
+
+      linkGroup.selectAll('.link-hover-target')
+        .attr('x1', l => l.source.x)
+        .attr('y1', l => l.source.y)
+        .attr('x2', l => l.target.x)
+        .attr('y2', l => l.target.y);
+
+      // Detect drop targets: employee↔project
+      if (draggedNode) {
+        const oppositeType = draggedNode.type === 'employee' ? 'project' : 'employee';
+        let newDropTarget = null;
+        nodes.forEach(n => {
+          if (n.type !== oppositeType) return;
+          const dist = Math.sqrt(Math.pow(n.x - event.x, 2) + Math.pow(n.y - event.y, 2));
+          if (dist < 40) newDropTarget = n;
+        });
+        node.classed('drop-target', n => n === newDropTarget);
+        dropTarget = newDropTarget;
+      }
+    }
+
+    function dragEnded(event, d) {
+      document.body.classList.remove('dragging');
+      node.classed('drop-target', false);
+
+      // Handle drop assignment before unfreezing
+      if (draggedNode && dropTarget) {
+        const emp = draggedNode.type === 'employee' ? draggedNode : dropTarget;
+        const proj = draggedNode.type === 'project' ? draggedNode : dropTarget;
+        if (emp.type === 'employee' && proj.type === 'project') {
+          showAssignmentForm(emp, proj, event);
+        }
+      }
+
+      // Unfreeze all nodes - restore original pin state
+      if (frozenPositions) {
+        nodes.forEach(n => {
+          const orig = frozenPositions.get(n.id);
+          if (orig) {
+            n.fx = orig.fx;
+            n.fy = orig.fy;
+          } else {
+            n.fx = null;
+            n.fy = null;
+          }
+        });
+        frozenPositions = null;
+      }
+
+      // Unpin the dragged node so it settles naturally
+      d.fx = null;
+      d.fy = null;
+
+      // Gently restart simulation so layout settles
+      simulation.alpha(0.1).restart();
+
+      draggedNode = null;
+      dropTarget = null;
+    }
+
+    // ===== FLOATING ASSIGNMENT FORM =====
+
+    let pendingAssignEmployee = null;
+    let pendingAssignProject = null;
+
+    function showAssignmentForm(employee, project, event) {
+      const normNum = normalizeProjectNumber(project.number);
+      // Show ALL phases for this project (including inactive — user may still want to assign)
+      const projectPhases = schedule.filter(s => normalizeProjectNumber(s.project_number) === normNum);
+      
+      // Find which phases this employee is already assigned to
+      const existingAssignments = teams.filter(t =>
+        t.employee_number === employee.number &&
+        normalizeProjectNumber(t.project_number) === normNum
+      );
+      const alreadyAssignedPhases = new Set(existingAssignments.map(t => t.phase));
+
+      // Filter to phases not yet assigned
+      const availablePhases = projectPhases.filter(p => !alreadyAssignedPhases.has(p.phase));
+
+      if (projectPhases.length === 0) {
+        showToast('No phases defined for ' + project.label + '. Add phases in the side panel first.');
+        return;
+      }
+
+      if (availablePhases.length === 0) {
+        showToast(employee.label + ' is already assigned to all phases on ' + project.label);
+        return;
+      }
+
+      pendingAssignEmployee = employee;
+      pendingAssignProject = project;
+
+      const form = document.getElementById('assignForm');
+      const container = document.getElementById('network-container');
+      const containerRect = container.getBoundingClientRect();
+
+      document.getElementById('assignFormTitle').textContent = 'Assign to ' + truncateLabel(project.label, 25);
+      document.getElementById('assignFormSubtitle').textContent = employee.label + ' → ' + project.number;
+
+      // Build dynamic phase checkboxes
+      const phaseColors = { SD: '#3B82F6', DD: '#10B981', CD: '#F97316', CA: '#8B5CF6' };
+      const phaseNames = { SD: 'Schematic Design', DD: 'Design Development', CD: 'Construction Docs', CA: 'Construction Admin' };
+
+      let bodyHtml = '<div class="mb-3">' +
+        '<label class="block mb-2">Select phases & hours:</label>' +
+        '<div class="space-y-2" id="assignPhaseList">';
+
+      availablePhases.forEach((p, i) => {
+        const color = phaseColors[p.phase] || '#6B7280';
+        const name = phaseNames[p.phase] || p.phase;
+        const isInactive = p.active === false;
+        const isOnly = availablePhases.length === 1;
+        bodyHtml +=
+          '<label class="block p-2.5 rounded border bg-white hover:bg-gray-50 cursor-pointer" ' +
+               'style="border-left: 3px solid ' + (isInactive ? '#d1d5db' : color) + '">' +
+            '<div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">' +
+              '<input type="checkbox" id="assignCheck-' + p.phase + '" value="' + p.phase + '" ' +
+                (isOnly ? 'checked ' : '') +
+                'onchange="updateAssignButton()" style="width:16px; height:16px; flex-shrink:0; accent-color:' + color + '">' +
+              '<strong style="flex-shrink:0; font-size:14px;">' + p.phase + '</strong>' +
+              (isInactive ? '<span style="font-size:11px; background:#f3f4f6; color:#9ca3af; padding:1px 4px; border-radius:3px; flex-shrink:0;">Inactive</span>' : '') +
+              '<span style="flex:1; font-size:11px; color:#9ca3af; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (p.budgeted_hours || 0) + ' hrs budgeted</span>' +
+              '<input type="number" id="assignHrs-' + p.phase + '" value="20" min="1" max="60" step="1" ' +
+                'onclick="event.stopPropagation()" ' +
+                'style="width:60px; flex-shrink:0; border:1px solid #d1d5db; border-radius:4px; padding:4px 6px; font-size:13px; text-align:center; font-weight:600;">' +
+              '<span style="font-size:11px; color:#9ca3af; flex-shrink:0;">hrs</span>' +
+            '</div>' +
+          '</label>';
+      });
+
+      bodyHtml += '</div></div>';
+
+      // Already assigned note
+      if (alreadyAssignedPhases.size > 0) {
+        bodyHtml += '<div class="mb-3 px-1 text-xs text-gray-400">Already assigned to: <strong>' +
+          [...alreadyAssignedPhases].join(', ') + '</strong></div>';
+      }
+
+      bodyHtml +=
+        '<div class="flex gap-2">' +
+          '<button onclick="confirmAssignment()" id="assignConfirmBtn" class="flex-1 py-2.5 text-sm font-semibold text-white rounded-lg disabled:opacity-40" style="background:#375E74;"' +
+            (availablePhases.length === 1 ? '' : ' disabled') + '>Assign</button>' +
+          '<button onclick="cancelAssignment()" class="flex-1 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>' +
+        '</div>';
+
+      document.getElementById('assignFormBody').innerHTML = bodyHtml;
+
+      // Position near the drop point
+      let formX, formY;
+      if (event && event.sourceEvent) {
+        formX = event.sourceEvent.clientX - containerRect.left + 20;
+        formY = event.sourceEvent.clientY - containerRect.top - 20;
+      } else {
+        formX = (employee.x + project.x) / 2;
+        formY = (employee.y + project.y) / 2;
+      }
+
+      // Keep form within container bounds (account for potentially tall form)
+      const formHeight = 120 + (availablePhases.length * 60) + (alreadyAssignedPhases.size > 0 ? 30 : 0);
+      formX = Math.max(10, Math.min(containerRect.width - 340, formX));
+      formY = Math.max(10, Math.min(containerRect.height - formHeight, formY));
+
+      form.style.left = formX + 'px';
+      form.style.top = formY + 'px';
+      form.style.display = 'block';
+    }
+
+    function updateAssignButton() {
+      const checkboxes = document.querySelectorAll('#assignPhaseList input[type="checkbox"]');
+      const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+      const btn = document.getElementById('assignConfirmBtn');
+      if (btn) btn.disabled = !anyChecked;
+    }
+
+    async function confirmAssignment() {
+      if (!pendingAssignEmployee || !pendingAssignProject) return;
+
+      // Gather all checked phases and their hours
+      const checkboxes = document.querySelectorAll('#assignPhaseList input[type="checkbox"]:checked');
+      const assignments = Array.from(checkboxes).map(cb => {
+        const phase = cb.value;
+        const hoursInput = document.getElementById('assignHrs-' + phase);
+        return {
+          phase: phase,
+          hours: hoursInput ? (parseInt(hoursInput.value) >= 0 ? parseInt(hoursInput.value) : 20) : 20
+        };
+      });
+
+      if (assignments.length === 0) {
+        showToast('Please select at least one phase');
+        return;
+      }
+
+      const btn = document.getElementById('assignConfirmBtn');
+      btn.textContent = 'Saving...';
+      btn.disabled = true;
+
+      try {
+        // Insert all assignments
+        const inserts = assignments.map(a => ({
+          project_number: pendingAssignProject.number,
+          phase: a.phase,
+          employee_number: pendingAssignEmployee.number,
+          employee_name: pendingAssignEmployee.label,
+          base_hrs_per_week: a.hours
+        }));
+
+        const { error } = await db
+          .from('teams')
+          .insert(inserts);
+
+        if (error) throw new Error('Insert failed: ' + error.message);
+
+        // Add links and local team data for each assignment
+        assignments.forEach(a => {
+          links.push({
+            source: pendingAssignProject.id,
+            target: pendingAssignEmployee.id,
+            phase: a.phase,
+            hours: a.hours
+          });
+
+          teams.push({
+            project_number: pendingAssignProject.number,
+            phase: a.phase,
+            employee_number: pendingAssignEmployee.number,
+            employee_name: pendingAssignEmployee.label,
+            base_hrs_per_week: a.hours
+          });
+        });
+
+        rebuildVisualization();
+        applyPhaseFilters();
+        updateStats();
+
+        const phaseList = assignments.map(a => a.phase + ' ' + a.hours + 'h').join(', ');
+        showToast('✓ ' + pendingAssignEmployee.label + ' → ' + pendingAssignProject.label + ' (' + phaseList + ')');
+
+      } catch (err) {
+        console.error('Assignment error:', err);
+        showToast('Failed to create assignment');
+      }
+
+      cancelAssignment();
+    }
+
+    function cancelAssignment() {
+      document.getElementById('assignForm').style.display = 'none';
+      pendingAssignEmployee = null;
+      pendingAssignProject = null;
+    }
+
+    // Close assign form on outside click
+    document.addEventListener('mousedown', function(e) {
+      const form = document.getElementById('assignForm');
+      if (form.style.display !== 'none' && !form.contains(e.target)) {
+        cancelAssignment();
+      }
+      const menu = document.getElementById('contextMenu');
+      if (menu.style.display !== 'none' && !menu.contains(e.target)) {
+        menu.style.display = 'none';
+      }
+    });
+
+    // Keyboard: Enter to confirm, Escape to cancel the form
+    document.addEventListener('keydown', function(e) {
+      const form = document.getElementById('assignForm');
+      if (form.style.display !== 'none') {
+        if (e.key === 'Enter') { e.preventDefault(); confirmAssignment(); }
+        if (e.key === 'Escape') { cancelAssignment(); }
+      }
+      const menu = document.getElementById('contextMenu');
+      if (menu.style.display !== 'none' && e.key === 'Escape') {
+        menu.style.display = 'none';
+      }
+    });
+
+    // ===== RIGHT-CLICK CONTEXT MENU ON LINKS =====
+
+    function handleLinkContext(event, d) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const container = document.getElementById('network-container');
+      const containerRect = container.getBoundingClientRect();
+
+      const srcNode = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source);
+      const tgtNode = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target);
+
+      const empNode = srcNode.type === 'employee' ? srcNode : tgtNode;
+      const projNode = srcNode.type === 'project' ? srcNode : tgtNode;
+
+      const menu = document.getElementById('contextMenu');
+      menu.innerHTML =
+        '<div class="px-3 py-2 border-b bg-gray-50">' +
+          '<div class="text-xs font-semibold text-gray-500">ASSIGNMENT</div>' +
+          '<div class="text-sm font-medium text-gray-800">' + empNode.label + '</div>' +
+          '<div class="text-xs text-gray-500">' + projNode.label + ' • ' + (d.phase || '—') + ' • ' + (d.hours || 0) + ' hrs/wk</div>' +
+        '</div>' +
+        '<div class="context-menu-item" onclick="focusOnNode(nodes.find(n=>n.id===\'' + empNode.id + '\'))">' +
+          '<span>👤</span> View ' + truncateLabel(empNode.label, 18) +
+        '</div>' +
+        '<div class="context-menu-item" onclick="focusOnNode(nodes.find(n=>n.id===\'' + projNode.id + '\'))">' +
+          '<span>📁</span> View ' + truncateLabel(projNode.label, 18) +
+        '</div>' +
+        '<div class="context-menu-separator"></div>' +
+        '<div class="context-menu-item danger" onclick="requestRemoveAssignment(\'' +
+          empNode.number + '\',\'' + projNode.number + '\',\'' + (d.phase || '') + '\',\'' +
+          empNode.label.replace(/'/g, "\\'") + '\',\'' + projNode.label.replace(/'/g, "\\'") + '\')">' +
+          '<span>✕</span> Remove from project' +
+        '</div>';
+
+      // Position at click point within container
+      let menuX = event.clientX - containerRect.left;
+      let menuY = event.clientY - containerRect.top;
+      menuX = Math.max(10, Math.min(containerRect.width - 220, menuX));
+      menuY = Math.max(10, Math.min(containerRect.height - 200, menuY));
+
+      menu.style.left = menuX + 'px';
+      menu.style.top = menuY + 'px';
+      menu.style.display = 'block';
+    }
+
+    // ===== REMOVE ASSIGNMENT WITH CONFIRM =====
+
+    let confirmCallback = null;
+
+    function requestRemoveAssignment(empNumber, projNumber, phase, empName, projName) {
+      // Hide context menu
+      document.getElementById('contextMenu').style.display = 'none';
+
+      // Show confirm dialog
+      document.getElementById('confirmTitle').textContent = 'Remove Assignment?';
+      document.getElementById('confirmMessage').textContent =
+        'Remove ' + empName + ' from ' + projName + ' (' + (phase || 'all phases') + ')? This will delete the team assignment from the database.';
+      document.getElementById('confirmOKBtn').textContent = 'Remove';
+
+      confirmCallback = function() {
+        executeRemoveAssignment(empNumber, projNumber, phase);
+      };
+
+      document.getElementById('confirmOverlay').style.display = 'flex';
+    }
+
+    function confirmDialogOK() {
+      document.getElementById('confirmOverlay').style.display = 'none';
+      if (confirmCallback) {
+        confirmCallback();
+        confirmCallback = null;
+      }
+    }
+
+    function confirmDialogCancel() {
+      document.getElementById('confirmOverlay').style.display = 'none';
+      confirmCallback = null;
+    }
+
+    async function executeRemoveAssignment(empNumber, projNumber, phase) {
+      try {
+        // Delete from Supabase
+        let query = db
+          .from('teams')
+          .delete()
+          .eq('employee_number', empNumber)
+          .eq('project_number', projNumber);
+
+        if (phase) {
+          query = query.eq('phase', phase);
+        }
+
+        const { error } = await query;
+        if (error) throw new Error('Delete failed: ' + error.message);
+
+        // Remove from local teams array
+        teams = teams.filter(t => {
+          if (t.employee_number !== empNumber) return true;
+          if (normalizeProjectNumber(t.project_number) !== normalizeProjectNumber(projNumber)) return true;
+          if (phase && t.phase !== phase) return true;
+          return false;
+        });
+
+        // Remove matching links
+        const empId = 'emp-' + empNumber;
+        const projId = 'proj-' + normalizeProjectNumber(projNumber);
+        links = links.filter(l => {
+          const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+          const matchesEndpoints = (srcId === empId && tgtId === projId) || (srcId === projId && tgtId === empId);
+          if (!matchesEndpoints) return true;
+          if (phase && l.phase !== phase) return true;
+          return false;
+        });
+
+        rebuildVisualization();
+        updateStats();
+        closeSidePanel();
+
+        const emp = employees.find(e => e.employee_number === empNumber);
+        const proj = projects.find(p => normalizeProjectNumber(p.project_number) === normalizeProjectNumber(projNumber));
+        showToast('✓ Removed ' + (emp ? emp.name : empNumber) + ' from ' + (proj ? proj.project_name : projNumber));
+
+      } catch (err) {
+        console.error('Remove error:', err);
+        showToast('Failed to remove assignment');
+      }
+    }
+
+    // Side panel removal helper (called from ✕ buttons in panel)
+    function requestRemoveFromPanel(empNumber, projNumber, phase, empName, projName) {
+      requestRemoveAssignment(empNumber, projNumber, phase, empName, projName);
+    }
+
+    // FIX #3/#4: Full rebuild of D3 elements after data changes
+    function rebuildVisualization() {
+      linkGroup.selectAll('*').remove();
+      nodeGroup.selectAll('*').remove();
+      labelGroup.selectAll('*').remove();
+
+      // Invisible wide hover targets for links (easier to click/right-click)
+      linkGroup.selectAll('.link-hover-target')
+        .data(links)
+        .enter().append('line')
+        .attr('class', 'link-hover-target')
+        .on('contextmenu', handleLinkContext)
+        .on('mouseover', function(event, d) {
+          // Highlight the visible link underneath
+          d3.select(this.nextSibling).classed('link-hovered', true);
+        })
+        .on('mouseout', function() {
+          linkGroup.selectAll('.link').classed('link-hovered', false);
+        });
+
+      // Visible link lines
+      link = linkGroup.selectAll('.link')
+        .data(links)
+        .enter().append('line')
+        .attr('class', 'link')
+        .on('contextmenu', handleLinkContext);
+
+      // Nodes
+      node = nodeGroup.selectAll('circle')
+        .data(nodes)
+        .enter().append('circle')
+        .attr('r', d => d.radius)
+        .attr('fill', d => d.type === 'project' ? '#3B82F6' : '#10B981')
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2)
+        .attr('class', d => d.type === 'project' ? 'node-project' : 'node-employee')
+        .on('click', handleNodeClick)
+        .on('mouseover', handleNodeHover)
+        .on('mouseout', handleNodeOut)
+        .call(d3.drag()
+          .on('start', dragStarted)
+          .on('drag', dragged)
+          .on('end', dragEnded));
+
+      // Labels
+      labels = labelGroup.selectAll('text')
+        .data(nodes)
+        .enter().append('text')
+        .attr('class', 'node-label')
+        .attr('dy', d => d.radius + 14)
+        .text(d => truncateLabel(d.label, 15));
+
+      // Update simulation tick to also move hover targets
+      simulation.nodes(nodes);
+      simulation.force('link').links(links);
+
+      // Re-attach tick handler to include hover targets
+      simulation.on('tick', () => {
+        linkGroup.selectAll('.link-hover-target')
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        link
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        node
+          .attr('cx', d => d.x)
+          .attr('cy', d => d.y);
+
+        labels
+          .attr('x', d => d.x)
+          .attr('y', d => d.y);
+      });
+
+      simulation.alpha(0.5).restart();
+    }
+
+    // FIX #6: Toast uses its own dedicated element
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.display = 'block';
+      toast.style.opacity = '1';
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.style.display = 'none'; }, 300);
+      }, 3000);
+    }
+
+    // ===== SIDE PANEL =====
+
+    function showSidePanel(d, connections) {
+      const panel = document.getElementById('sidePanel');
+      const title = document.getElementById('panelTitle');
+      const content = document.getElementById('panelContent');
+
+      let html = '';
+
+      if (d.type === 'project') {
+        title.textContent = d.label;
+
+        const teamMembers = connections.map(c => {
+          const emp = c.source.id === d.id ? c.target : c.source;
+          return { ...emp, phase: c.phase, hours: c.hours };
+        });
+
+        const normNum = normalizeProjectNumber(d.number);
+        const dbTeamForProject = teams.filter(t => normalizeProjectNumber(t.project_number) === normNum);
+        const missingFromGraph = dbTeamForProject.filter(t => !nodes.find(n => n.id === 'emp-' + t.employee_number));
+
+        // Get phases for this project from schedule
+        const projectPhases = schedule.filter(s => normalizeProjectNumber(s.project_number) === normNum);
+
+        // Phase colors
+        const phaseColors = { SD: '#3B82F6', DD: '#10B981', CD: '#F97316', CA: '#8B5CF6' };
+
+        html = '<div class="mb-3">' +
+          '<div class="text-sm text-gray-500">Project Number</div>' +
+          '<div class="font-medium">' + d.number + '</div></div>' +
+          '<div class="mb-3">' +
+          '<div class="text-sm text-gray-500">PM</div>' +
+          '<div class="font-medium">' + (d.data.pm || 'N/A') + '</div></div>' +
+
+          // === PHASES SECTION ===
+          '<div class="mb-4">' +
+          '<div class="flex items-center justify-between mb-2">' +
+            '<div class="text-sm text-gray-500 font-semibold">Phases</div>' +
+            '<button onclick="toggleAddPhaseForm(\'' + d.number + '\')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">+ Add Phase</button>' +
+          '</div>' +
+
+          // Add Phase Form (hidden by default)
+          '<div id="panelAddPhaseForm" class="hidden mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">' +
+            '<div class="grid grid-cols-2 gap-2 mb-2">' +
+              '<div>' +
+                '<label class="text-xs text-gray-600">Phase</label>' +
+                '<select id="panelNewPhase" class="w-full border rounded px-2 py-1.5 text-sm mt-0.5">' +
+                  '<option value="SD">SD</option><option value="DD">DD</option>' +
+                  '<option value="CD">CD</option><option value="CA">CA</option>' +
+                '</select>' +
+              '</div>' +
+              '<div>' +
+                '<label class="text-xs text-gray-600">Budgeted Hours</label>' +
+                '<input type="number" id="panelNewBudget" value="0" min="0" class="w-full border rounded px-2 py-1.5 text-sm mt-0.5">' +
+              '</div>' +
+            '</div>' +
+            '<div class="grid grid-cols-2 gap-2 mb-2">' +
+              '<div>' +
+                '<label class="text-xs text-gray-600">Start Date</label>' +
+                '<input type="date" id="panelNewStart" class="w-full border rounded px-2 py-1.5 text-sm mt-0.5">' +
+              '</div>' +
+              '<div>' +
+                '<label class="text-xs text-gray-600">End Date</label>' +
+                '<input type="date" id="panelNewEnd" class="w-full border rounded px-2 py-1.5 text-sm mt-0.5">' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex gap-2">' +
+              '<button onclick="addPhaseFromPanel(\'' + d.number + '\')" class="flex-1 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Add</button>' +
+              '<button onclick="toggleAddPhaseForm()" class="flex-1 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">Cancel</button>' +
+            '</div>' +
+          '</div>' +
+
+          // Phase cards
+          (projectPhases.length > 0 ?
+            '<div class="space-y-2">' +
+            projectPhases.map(phase => {
+              const phaseKey = normNum + '|' + phase.phase;
+              const isHidden = hiddenPhases.has(phaseKey);
+              const isActive = phase.active !== false;
+              const color = phaseColors[phase.phase] || '#6B7280';
+
+              // Count team members on this phase
+              const phaseTeam = dbTeamForProject.filter(t => t.phase === phase.phase);
+
+              // Get actual hours for this phase
+              const phaseActuals = actuals.filter(a => normalizeProjectNumber(a.project_number) === normNum);
+              const totalActual = phaseActuals.reduce((s, a) => s + (Number(a.actual_hours) || 0), 0);
+
+              const startStr = phase.phase_start ? new Date(phase.phase_start).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'}) : '—';
+              const endStr = phase.phase_end ? new Date(phase.phase_end).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'}) : '—';
+
+              return '<div class="p-2.5 rounded-lg border ' + (isHidden ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white') + '" style="border-left: 3px solid ' + (isHidden ? '#d1d5db' : color) + '">' +
+                '<div class="flex items-center justify-between mb-1">' +
+                  '<div class="flex items-center gap-2">' +
+                    '<span class="font-semibold text-sm">' + phase.phase + '</span>' +
+                    (!isActive ? '<span class="text-xs bg-gray-100 text-gray-500 px-1 rounded">Inactive</span>' : '') +
+                    '<span class="text-xs text-gray-400">' + phaseTeam.length + ' staff</span>' +
+                  '</div>' +
+                  '<label class="flex items-center gap-1 cursor-pointer" title="' + (isHidden ? 'Show' : 'Hide') + ' phase connections">' +
+                    '<span class="text-xs text-gray-400">' + (isHidden ? 'Off' : 'On') + '</span>' +
+                    '<input type="checkbox" ' + (isHidden ? '' : 'checked') + ' ' +
+                      'onchange="togglePhaseVisibility(\'' + normNum + '\',\'' + phase.phase + '\',this.checked)" ' +
+                      'class="rounded text-blue-600 w-4 h-4">' +
+                  '</label>' +
+                '</div>' +
+                '<div class="text-xs text-gray-500 mb-1">' + startStr + ' — ' + endStr + '</div>' +
+                '<div class="flex items-center gap-2">' +
+                  '<input type="number" value="' + (phase.budgeted_hours || 0) + '" min="0" ' +
+                    'onchange="updatePhaseBudget(' + phase.id + ', this.value, \'' + d.number + '\')" ' +
+                    'class="w-20 border rounded px-2 py-1 text-sm">' +
+                  '<span class="text-xs text-gray-500">budgeted hrs</span>' +
+                '</div>' +
+              '</div>';
+            }).join('') +
+            '</div>'
+          :
+            '<div class="text-center py-3 text-xs text-gray-400 border border-dashed rounded-lg">No phases defined</div>'
+          ) +
+          '</div>' +
+
+          // Budget summary (if phases exist)
+          (d.budgetedHours > 0 ? 
+            '<div class="mb-4 p-3 rounded-lg ' + (d.remainingHours > 0 ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200') + '">' +
+            '<div class="flex justify-between text-sm mb-1">' +
+              '<span class="text-gray-600">Total Budget</span>' +
+              '<span class="font-medium">' + (d.budgetedHours || 0).toLocaleString() + ' hrs</span></div>' +
+            '<div class="flex justify-between text-sm mb-1">' +
+              '<span class="text-gray-600">Used</span>' +
+              '<span class="font-medium">' + (d.actualHours || 0).toLocaleString() + ' hrs</span></div>' +
+            '<div class="flex justify-between text-sm font-semibold ' + (d.remainingHours > 0 ? 'text-blue-700' : 'text-green-700') + '">' +
+              '<span>Remaining</span>' +
+              '<span>' + (d.remainingHours || 0).toLocaleString() + ' hrs</span></div>' +
+            '<div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">' +
+              '<div class="h-full rounded-full ' + (d.remainingHours > 0 ? 'bg-blue-500' : 'bg-green-500') + '" style="width:' + 
+              Math.min(100, Math.round(((d.actualHours || 0) / d.budgetedHours) * 100)) + '%"></div></div>' +
+            '</div>'
+          : '') +
+
+          // Load Staff button
+          (missingFromGraph.length > 0 ?
+            '<button onclick="loadStaffForProject(\'' + d.number + '\')" ' +
+              'class="w-full mb-4 py-2 px-3 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">' +
+              '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><circle cx="17" cy="7" r="4"/></svg>' +
+              'Load Staff (' + missingFromGraph.length + ' not on graph)' +
+            '</button>'
+          : dbTeamForProject.length > 0 && missingFromGraph.length === 0 ?
+            '<div class="mb-4 text-center text-xs text-green-600 py-1">✓ All ' + dbTeamForProject.length + ' team members on graph</div>'
+          : '') +
+
+          // Team Members
+          '<div class="mb-4">' +
+          '<div class="text-sm text-gray-500 mb-2">Team Members (' + teamMembers.length + ')' +
+          (dbTeamForProject.length > teamMembers.length ? ' <span class="text-xs text-orange-500">(' + (dbTeamForProject.length - teamMembers.length) + ' not shown)</span>' : '') +
+          '</div>' +
+          '<div class="space-y-2">' +
+          (teamMembers.length > 0 ? teamMembers.map(m =>
+            '<div class="flex items-center justify-between p-2 bg-gray-50 rounded group">' +
+            '<div class="flex-1 min-w-0">' +
+              '<div class="font-medium text-sm">' + m.label + '</div>' +
+              '<div class="text-xs text-gray-500">' + (m.department || 'No dept') + '</div>' +
+            '</div>' +
+            '<div class="text-right flex items-center gap-2">' +
+              '<div>' +
+                '<div class="text-xs font-medium text-blue-600">' + (m.phase || '') + '</div>' +
+                '<div class="text-xs text-gray-500">' + (m.hours || 0) + ' hrs/wk</div>' +
+              '</div>' +
+              '<button onclick="requestRemoveFromPanel(\'' + m.number + '\',\'' + d.number + '\',\'' +
+                (m.phase || '') + '\',\'' + m.label.replace(/'/g, "\\'") + '\',\'' +
+                d.label.replace(/'/g, "\\'") + '\')" ' +
+                'class="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Remove">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+              '</button>' +
+            '</div></div>'
+          ).join('') : '<div class="text-center py-2 text-xs text-gray-400">No team members on graph</div>') +
+          '</div></div>';
+      } else {
+        title.textContent = d.label;
+
+        const memberProjects = connections.map(c => {
+          const proj = c.source.id === d.id ? c.target : c.source;
+          return { ...proj, phase: c.phase, hours: c.hours };
+        });
+
+        const totalHours = memberProjects.reduce((sum, p) => sum + (p.hours || 0), 0);
+
+        // Check how many projects this person is on in DB but not on graph
+        const dbProjectsForEmp = teams.filter(t => t.employee_number === d.number);
+        const missingProjects = dbProjectsForEmp.filter(t => 
+          !nodes.find(n => n.id === 'proj-' + normalizeProjectNumber(t.project_number))
+        );
+        // Dedupe by project number
+        const uniqueMissingProjects = [...new Map(missingProjects.map(t => [normalizeProjectNumber(t.project_number), t])).values()];
+
+        html = '<div class="mb-4">' +
+          '<div class="text-sm text-gray-500">Employee Number</div>' +
+          '<div class="font-medium">' + d.number + '</div></div>' +
+          '<div class="mb-4">' +
+          '<div class="text-sm text-gray-500">Department</div>' +
+          '<div class="font-medium">' + (d.department || 'N/A') + '</div></div>' +
+          '<div class="mb-4">' +
+          '<div class="text-sm text-gray-500">Total Hours/Week</div>' +
+          '<div class="font-medium">' + totalHours + ' hours' +
+          (totalHours > 40 ? ' <span class="text-red-500 text-xs font-medium">⚠ Over 40</span>' : '') +
+          '</div></div>' +
+          // Load Projects button
+          (uniqueMissingProjects.length > 0 ?
+            '<button onclick="loadProjectsForEmployee(\'' + d.number + '\')" ' +
+              'class="w-full mb-4 py-2 px-3 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">' +
+              '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>' +
+              'Load Projects (' + uniqueMissingProjects.length + ' not on graph)' +
+            '</button>'
+          : dbProjectsForEmp.length > 0 && uniqueMissingProjects.length === 0 ?
+            '<div class="mb-4 text-center text-xs text-blue-600 py-1">✓ All ' + new Set(dbProjectsForEmp.map(t => normalizeProjectNumber(t.project_number))).size + ' projects on graph</div>'
+          : '') +
+          '<div class="mb-4">' +
+          '<div class="text-sm text-gray-500 mb-2">Projects (' + memberProjects.length + ')' +
+          (uniqueMissingProjects.length > 0 ? ' <span class="text-xs text-orange-500">(' + uniqueMissingProjects.length + ' not shown)</span>' : '') +
+          '</div>' +
+          '<div class="space-y-2">' +
+          memberProjects.map(p =>
+            '<div class="flex items-center justify-between p-2 bg-gray-50 rounded group">' +
+            '<div class="flex-1 min-w-0">' +
+              '<div class="font-medium text-sm">' + p.label + '</div>' +
+              '<div class="text-xs text-gray-500">' + (p.number || '') + '</div>' +
+            '</div>' +
+            '<div class="text-right flex items-center gap-2">' +
+              '<div>' +
+                '<div class="text-xs font-medium text-blue-600">' + (p.phase || '') + '</div>' +
+                '<div class="text-xs text-gray-500">' + (p.hours || 0) + ' hrs/wk</div>' +
+              '</div>' +
+              '<button onclick="requestRemoveFromPanel(\'' + d.number + '\',\'' + p.number + '\',\'' +
+                (p.phase || '') + '\',\'' + d.label.replace(/'/g, "\\'") + '\',\'' +
+                p.label.replace(/'/g, "\\'") + '\')" ' +
+                'class="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Remove">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+              '</button>' +
+            '</div></div>'
+          ).join('') +
+          '</div></div>';
+      }
+
+      content.innerHTML = html;
+      panel.classList.add('open');
+    }
+
+    // ===== PHASE MANAGEMENT =====
+
+    function toggleAddPhaseForm(projectNumber) {
+      const form = document.getElementById('panelAddPhaseForm');
+      if (form) form.classList.toggle('hidden');
+    }
+
+    async function addPhaseFromPanel(projectNumber) {
+      const phase = document.getElementById('panelNewPhase').value;
+      const budget = parseInt(document.getElementById('panelNewBudget').value) || 0;
+      const startDate = document.getElementById('panelNewStart').value;
+      const endDate = document.getElementById('panelNewEnd').value;
+
+      if (!phase || !startDate || !endDate) {
+        showToast('Please fill in phase, start date, and end date');
+        return;
+      }
+
+      // Check for duplicate phase
+      const normNum = normalizeProjectNumber(projectNumber);
+      const existing = schedule.find(s =>
+        normalizeProjectNumber(s.project_number) === normNum && s.phase === phase
+      );
+      if (existing) {
+        showToast(phase + ' already exists for this project');
+        return;
+      }
+
+      try {
+        const { data, error } = await db
+          .from('schedule')
+          .insert({
+            project_number: projectNumber,
+            phase: phase,
+            phase_start: startDate,
+            phase_end: endDate,
+            budgeted_hours: budget,
+            active: true
+          })
+          .select();
+
+        if (error) throw new Error(error.message);
+
+        // Add to local schedule array
+        const newPhase = data && data[0] ? data[0] : {
+          id: Date.now(),
+          project_number: projectNumber,
+          phase: phase,
+          phase_start: startDate,
+          phase_end: endDate,
+          budgeted_hours: budget,
+          active: true
+        };
+        schedule.push(newPhase);
+
+        showToast('✓ Added ' + phase + ' phase');
+
+        // Refresh side panel
+        refreshProjectPanel(projectNumber);
+
+      } catch (err) {
+        console.error('Add phase error:', err);
+        showToast('Failed to add phase: ' + err.message);
+      }
+    }
+
+    async function updatePhaseBudget(scheduleId, newBudget, projectNumber) {
+      const hours = parseInt(newBudget) || 0;
+
+      try {
+        const { error } = await db
+          .from('schedule')
+          .update({ budgeted_hours: hours })
+          .eq('id', scheduleId);
+
+        if (error) throw new Error(error.message);
+
+        // Update local data
+        const phase = schedule.find(s => s.id === scheduleId);
+        if (phase) phase.budgeted_hours = hours;
+
+        // Recalculate project node radius
+        const normNum = normalizeProjectNumber(projectNumber);
+        const projNode = nodes.find(n => n.id === 'proj-' + normNum);
+        if (projNode) {
+          // Recalculate remaining hours for this project
+          let budgeted = 0;
+          schedule.forEach(s => {
+            if (s.active !== false && normalizeProjectNumber(s.project_number) === normNum) {
+              budgeted += Number(s.budgeted_hours) || 0;
+            }
+          });
+          let actual = 0;
+          actuals.forEach(a => {
+            if (normalizeProjectNumber(a.project_number) === normNum) {
+              actual += Number(a.actual_hours) || 0;
+            }
+          });
+          projNode.budgetedHours = budgeted;
+          projNode.actualHours = actual;
+          projNode.remainingHours = Math.max(0, budgeted - actual);
+        }
+
+        recalcProjectRadii();
+        rebuildVisualization();
+
+        showToast('✓ Budget updated to ' + hours + ' hrs');
+
+      } catch (err) {
+        console.error('Update budget error:', err);
+        showToast('Failed to update budget');
+      }
+    }
+
+    function togglePhaseVisibility(normProjectNum, phase, isChecked) {
+      const phaseKey = normProjectNum + '|' + phase;
+
+      if (isChecked) {
+        hiddenPhases.delete(phaseKey);
+      } else {
+        hiddenPhases.add(phaseKey);
+      }
+
+      applyPhaseFilters();
+    }
+
+    function applyPhaseFilters() {
+      if (hiddenPhases.size === 0) {
+        // No filters — show everything
+        if (link) link.style('display', null);
+        if (node) node.style('opacity', 1);
+        linkGroup.selectAll('.link-hover-target').style('display', null);
+        return;
+      }
+
+      // Hide links whose project+phase combo is toggled off
+      link.style('display', function(l) {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+
+        // Find which end is the project
+        const projNode = nodes.find(n => n.id === srcId && n.type === 'project') ||
+                         nodes.find(n => n.id === tgtId && n.type === 'project');
+        if (!projNode) return null;
+
+        const normNum = normalizeProjectNumber(projNode.number);
+        const phaseKey = normNum + '|' + l.phase;
+        return hiddenPhases.has(phaseKey) ? 'none' : null;
+      });
+
+      linkGroup.selectAll('.link-hover-target').style('display', function(l) {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        const projNode = nodes.find(n => n.id === srcId && n.type === 'project') ||
+                         nodes.find(n => n.id === tgtId && n.type === 'project');
+        if (!projNode) return null;
+        const normNum = normalizeProjectNumber(projNode.number);
+        return hiddenPhases.has(normNum + '|' + l.phase) ? 'none' : null;
+      });
+
+      // Dim employee nodes that have ALL their links hidden
+      node.style('opacity', function(n) {
+        if (n.type === 'project') return 1;
+
+        // Check if this employee has any visible links
+        const myLinks = links.filter(l => {
+          const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+          return srcId === n.id || tgtId === n.id;
+        });
+
+        const anyVisible = myLinks.some(l => {
+          const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+          const projNode = nodes.find(nd => nd.id === srcId && nd.type === 'project') ||
+                           nodes.find(nd => nd.id === tgtId && nd.type === 'project');
+          if (!projNode) return true;
+          const normNum = normalizeProjectNumber(projNode.number);
+          return !hiddenPhases.has(normNum + '|' + l.phase);
+        });
+
+        return anyVisible ? 1 : 0.15;
+      });
+    }
+
+    // Helper to refresh the side panel for a project after changes
+    function refreshProjectPanel(projectNumber) {
+      const normNum = normalizeProjectNumber(projectNumber);
+      const projNode = nodes.find(n => n.id === 'proj-' + normNum);
+      if (!projNode) return;
+
+      const connectedLinks = links.filter(l =>
+        l.source.id === projNode.id || l.target.id === projNode.id
+      );
+      showSidePanel(projNode, connectedLinks);
+    }
+
+    function closeSidePanel() {
+      document.getElementById('sidePanel').classList.remove('open');
+      if (link) link.classed('highlighted', false);
+      selectedNode = null;
+    }
+
+    // ===== LOAD RELATED NODES =====
+
+    function loadStaffForProject(projectNumber) {
+      const normNum = normalizeProjectNumber(projectNumber);
+      const projNode = nodes.find(n => n.id === 'proj-' + normNum);
+      if (!projNode) return;
+
+      // Find all team members for this project in DB
+      const teamForProject = teams.filter(t => normalizeProjectNumber(t.project_number) === normNum);
+      let added = 0;
+
+      teamForProject.forEach(t => {
+        const empId = 'emp-' + t.employee_number;
+        if (!nodes.find(n => n.id === empId)) {
+          const emp = employees.find(e => e.employee_number === t.employee_number);
+          nodes.push({
+            id: empId,
+            type: 'employee',
+            label: emp ? emp.name : (t.employee_name || t.employee_number),
+            number: t.employee_number,
+            department: emp ? emp.department : '',
+            data: emp || { name: t.employee_name, employee_number: t.employee_number },
+            radius: 18,
+            // Position near the project node
+            x: projNode.x + (Math.random() - 0.5) * 150,
+            y: projNode.y + (Math.random() - 0.5) * 150
+          });
+          added++;
+        }
+      });
+
+      // Add all missing links now that nodes exist
+      addMissingLinks();
+      rebuildVisualization();
+      updateStats();
+
+      // Re-open the side panel to refresh the button state
+      const connectedLinks = links.filter(l =>
+        l.source.id === projNode.id || l.target.id === projNode.id
+      );
+      link.classed('highlighted', l =>
+        l.source.id === projNode.id || l.target.id === projNode.id
+      );
+      showSidePanel(projNode, connectedLinks);
+
+      showToast('✓ Loaded ' + added + ' staff member' + (added !== 1 ? 's' : '') + ' for ' + projNode.label);
+    }
+
+    function loadProjectsForEmployee(employeeNumber) {
+      const empNode = nodes.find(n => n.id === 'emp-' + employeeNumber);
+      if (!empNode) return;
+
+      // Find all projects this employee is on in DB
+      const teamForEmp = teams.filter(t => t.employee_number === employeeNumber);
+      const center = getViewCenter();
+      let added = 0;
+
+      // Dedupe by project number
+      const seenProjects = new Set();
+      teamForEmp.forEach(t => {
+        const normNum = normalizeProjectNumber(t.project_number);
+        if (seenProjects.has(normNum)) return;
+        seenProjects.add(normNum);
+
+        const projId = 'proj-' + normNum;
+        if (!nodes.find(n => n.id === projId)) {
+          const proj = projects.find(p => normalizeProjectNumber(p.project_number) === normNum);
+          if (!proj) return;
+
+          // Calculate budget info
+          let budgeted = 0, actual = 0;
+          schedule.forEach(s => {
+            if (s.active !== false && normalizeProjectNumber(s.project_number) === normNum) {
+              budgeted += Number(s.budgeted_hours) || 0;
+            }
+          });
+          actuals.forEach(a => {
+            if (normalizeProjectNumber(a.project_number) === normNum) {
+              actual += Number(a.actual_hours) || 0;
+            }
+          });
+          const remaining = Math.max(0, budgeted - actual);
+
+          nodes.push({
+            id: projId,
+            type: 'project',
+            label: proj.project_name || proj.project_number,
+            number: proj.project_number,
+            data: proj,
+            radius: 25, // Will be recalculated
+            remainingHours: remaining,
+            budgetedHours: budgeted,
+            actualHours: actual,
+            // Position near the employee node
+            x: empNode.x + (Math.random() - 0.5) * 200,
+            y: empNode.y + (Math.random() - 0.5) * 200
+          });
+          added++;
+        }
+      });
+
+      recalcProjectRadii();
+      addMissingLinks();
+      rebuildVisualization();
+      updateStats();
+
+      // Re-open the side panel to refresh the button state
+      const connectedLinks = links.filter(l =>
+        l.source.id === empNode.id || l.target.id === empNode.id
+      );
+      link.classed('highlighted', l =>
+        l.source.id === empNode.id || l.target.id === empNode.id
+      );
+      showSidePanel(empNode, connectedLinks);
+
+      showToast('✓ Loaded ' + added + ' project' + (added !== 1 ? 's' : '') + ' for ' + empNode.label);
+    }
+
+    // ===== STATS =====
+
+    function updateStats() {
+      const projectCount = nodes.filter(n => n.type === 'project').length;
+      const peopleCount = nodes.filter(n => n.type === 'employee').length;
+      const connectionCount = links.length;
+      const avgTeamSize = projectCount > 0 ? (connectionCount / projectCount).toFixed(1) : 0;
+
+      document.getElementById('statProjects').textContent = projectCount;
+      document.getElementById('statPeople').textContent = peopleCount;
+      document.getElementById('statConnections').textContent = connectionCount;
+      document.getElementById('statAvgTeam').textContent = avgTeamSize;
+    }
+
+    // FIX #7: Clear existing options before populating
+    function populateDepartmentFilter() {
+      const select = document.getElementById('departmentFilter');
+      // Remove all options except the first ("All Departments")
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+
+      const departments = [...new Set(employees.map(e => e.department).filter(d => d))];
+      departments.sort().forEach(dept => {
+        const option = document.createElement('option');
+        option.value = dept;
+        option.textContent = dept;
+        select.appendChild(option);
+      });
+    }
+
+    // ===== FILTERS =====
+
+    function filterByDepartment(dept) {
+      if (!dept) {
+        node.style('opacity', 1);
+        link.style('opacity', 1);
+        return;
+      }
+
+      const deptEmployeeIds = new Set(
+        nodes.filter(n => n.type === 'employee' && n.department === dept).map(n => n.id)
+      );
+
+      const connectedProjectIds = new Set();
+      links.forEach(l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (deptEmployeeIds.has(srcId) || deptEmployeeIds.has(tgtId)) {
+          connectedProjectIds.add(srcId);
+          connectedProjectIds.add(tgtId);
+        }
+      });
+
+      node.style('opacity', n =>
+        deptEmployeeIds.has(n.id) || connectedProjectIds.has(n.id) ? 1 : 0.1
+      );
+
+      link.style('opacity', l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        return deptEmployeeIds.has(srcId) || deptEmployeeIds.has(tgtId) ? 1 : 0.05;
+      });
+    }
+
+    // ===== SEARCH =====
+
+    function handleSearchInput(query) {
+      const resultsDiv = document.getElementById('searchResults');
+
+      if (!query || query.length < 1) {
+        resultsDiv.classList.add('hidden');
+        if (node) node.classed('search-match', false);
+        if (node) node.style('opacity', 1);
+        if (link) link.style('opacity', 1);
+        return;
+      }
+
+      const q = query.toLowerCase();
+
+      // Search ALL projects and employees
+      const matchingProjects = projects.filter(p =>
+        (p.project_name && p.project_name.toLowerCase().includes(q)) ||
+        (p.project_number && p.project_number.toLowerCase().includes(q))
+      ).slice(0, 10);
+
+      const matchingEmployees = employees.filter(e =>
+        (e.name && e.name.toLowerCase().includes(q)) ||
+        (e.employee_number && e.employee_number.toLowerCase().includes(q))
+      ).slice(0, 10);
+
+      let html = '';
+
+      if (matchingProjects.length > 0) {
+        html += '<div class="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50">PROJECTS</div>';
+        matchingProjects.forEach(p => {
+          const inGraph = nodes.find(n => n.id === 'proj-' + normalizeProjectNumber(p.project_number));
+          html += '<div class="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center justify-between" ' +
+            'onclick="selectSearchResult(\'project\', \'' + p.project_number + '\')">' +
+            '<div><div class="font-medium text-sm">' + (p.project_name || p.project_number) + '</div>' +
+            '<div class="text-xs text-gray-500">' + p.project_number + '</div></div>' +
+            (inGraph ? '<span class="text-xs text-green-600">● In graph</span>' : '<span class="text-xs text-gray-400">+ Add to graph</span>') +
+            '</div>';
+        });
+      }
+
+      if (matchingEmployees.length > 0) {
+        html += '<div class="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50">EMPLOYEES</div>';
+        matchingEmployees.forEach(e => {
+          const inGraph = nodes.find(n => n.id === 'emp-' + e.employee_number);
+          html += '<div class="px-3 py-2 hover:bg-green-50 cursor-pointer flex items-center justify-between" ' +
+            'onclick="selectSearchResult(\'employee\', \'' + e.employee_number + '\')">' +
+            '<div><div class="font-medium text-sm">' + e.name + '</div>' +
+            '<div class="text-xs text-gray-500">' + (e.department || 'No department') + '</div></div>' +
+            (inGraph ? '<span class="text-xs text-green-600">● In graph</span>' : '<span class="text-xs text-gray-400">+ Add to graph</span>') +
+            '</div>';
+        });
+      }
+
+      if (!html) {
+        html = '<div class="px-3 py-4 text-center text-gray-500">No results found</div>';
+      }
+
+      resultsDiv.innerHTML = html;
+      resultsDiv.classList.remove('hidden');
+    }
+
+    function showSearchResults() {
+      const query = document.getElementById('searchInput').value;
+      if (query) handleSearchInput(query);
+    }
+
+    // FIX #1: Employee node fields were using project fields
+    // Get the center of the current visible viewport in simulation coordinates
+    function getViewCenter() {
+      const container = document.getElementById('network-container');
+      const screenCx = container.clientWidth / 2;
+      const screenCy = container.clientHeight / 2;
+
+      // Get current zoom transform
+      const transform = d3.zoomTransform(svg.node());
+
+      // Invert screen center to get simulation coordinates
+      const simX = (screenCx - transform.x) / transform.k;
+      const simY = (screenCy - transform.y) / transform.k;
+
+      return { x: simX, y: simY };
+    }
+
+    function selectSearchResult(type, number) {
+      document.getElementById('searchResults').classList.add('hidden');
+      document.getElementById('searchInput').value = '';
+
+      // Place new nodes at center of current view, not virtual origin
+      const center = getViewCenter();
+
+      if (type === 'project') {
+        const projId = 'proj-' + normalizeProjectNumber(number);
+        let existingNode = nodes.find(n => n.id === projId);
+
+        if (!existingNode) {
+          const proj = projects.find(p => normalizeProjectNumber(p.project_number) === normalizeProjectNumber(number));
+          if (proj) {
+            existingNode = {
+              id: projId,
+              type: 'project',
+              label: proj.project_name || proj.project_number,
+              number: proj.project_number,
+              data: proj,
+              radius: 25,
+              x: center.x + (Math.random() - 0.5) * 80,
+              y: center.y + (Math.random() - 0.5) * 80
+            };
+            nodes.push(existingNode);
+            rebuildVisualization();
+          }
+        }
+
+        if (existingNode) focusOnNode(existingNode);
+
+      } else {
+        const empId = 'emp-' + number;
+        let existingNode = nodes.find(n => n.id === empId);
+
+        if (!existingNode) {
+          const emp = employees.find(e => e.employee_number === number);
+          if (emp) {
+            existingNode = {
+              id: empId,
+              type: 'employee',
+              label: emp.name,
+              number: emp.employee_number,
+              department: emp.department,
+              data: emp,
+              radius: 18,
+              x: center.x + (Math.random() - 0.5) * 80,
+              y: center.y + (Math.random() - 0.5) * 80
+            };
+            nodes.push(existingNode);
+            rebuildVisualization();
+          }
+        }
+
+        if (existingNode) focusOnNode(existingNode);
+      }
+
+      updateStats();
+    }
+
+    function focusOnNode(targetNode) {
+      // Highlight node
+      node.classed('search-match', n => n.id === targetNode.id);
+
+      // Highlight connections
+      link.classed('highlighted', l =>
+        l.source.id === targetNode.id || l.target.id === targetNode.id
+      );
+
+      // Zoom to node
+      const container = document.getElementById('network-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      const scale = 1.5;
+      const x = width / 2 - targetNode.x * scale;
+      const y = height / 2 - targetNode.y * scale;
+
+      svg.transition().duration(750).call(
+        svg.__zoom_behavior.transform,
+        d3.zoomIdentity.translate(x, y).scale(scale)
+      );
+
+      // Side panel
+      const connectedLinks = links.filter(l =>
+        l.source.id === targetNode.id || l.target.id === targetNode.id
+      );
+      showSidePanel(targetNode, connectedLinks);
+    }
+
+    // Close search results on outside click
+    document.addEventListener('click', function(e) {
+      const container = document.getElementById('searchContainer');
+      if (container && !container.contains(e.target)) {
+        document.getElementById('searchResults').classList.add('hidden');
+      }
+    });
+
+    // ===== VIEW MODE =====
+
+    function setViewMode(mode) {
+      viewMode = mode;
+      ['viewAll', 'viewProjects', 'viewPeople'].forEach(id => {
+        const btn = document.getElementById(id);
+        const isActive = id === 'view' + mode.charAt(0).toUpperCase() + mode.slice(1) ||
+                         (mode === 'all' && id === 'viewAll');
+        btn.classList.toggle('bg-gray-800', isActive);
+        btn.classList.toggle('text-white', isActive);
+        btn.classList.toggle('bg-white', !isActive);
+        btn.classList.toggle('text-gray-700', !isActive);
+      });
+
+      if (mode === 'all') {
+        node.style('opacity', 1);
+        link.style('opacity', 1);
+      } else if (mode === 'projects') {
+        node.style('opacity', n => n.type === 'project' ? 1 : 0.2);
+        link.style('opacity', 0.1);
+      } else if (mode === 'people') {
+        node.style('opacity', n => n.type === 'employee' ? 1 : 0.2);
+        link.style('opacity', 0.1);
+      }
+    }
+
+    // ===== RESET =====
+
+    function resetView() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('departmentFilter').value = '';
+      closeSidePanel();
+      setViewMode('all');
+
+      // Reset zoom
+      if (svg && svg.__zoom_behavior) {
+        svg.transition().duration(500).call(
+          svg.__zoom_behavior.transform,
+          d3.zoomIdentity
+        );
+      }
+    }
+
+    // ===== LOAD / CLEAR GRAPH =====
+
+    function toggleLoadMenu() {
+      const menu = document.getElementById('loadMenu');
+      menu.classList.toggle('hidden');
+    }
+
+    // Close menu when clicking outside
+    document.addEventListener('click', function(e) {
+      const container = document.getElementById('loadMenuContainer');
+      if (container && !container.contains(e.target)) {
+        document.getElementById('loadMenu').classList.add('hidden');
+      }
+    });
+
+    function loadAllProjects() {
+      document.getElementById('loadMenu').classList.add('hidden');
+      const center = getViewCenter();
+      let added = 0;
+
+      projects.forEach(p => {
+        const normNum = normalizeProjectNumber(p.project_number);
+        const projId = 'proj-' + normNum;
+        if (!nodes.find(n => n.id === projId)) {
+          // Calculate remaining hours for radius (same logic as buildGraph)
+          let budgeted = 0, actual = 0;
+          schedule.forEach(s => {
+            if (s.active !== false && normalizeProjectNumber(s.project_number) === normNum) {
+              budgeted += Number(s.budgeted_hours) || 0;
+            }
+          });
+          actuals.forEach(a => {
+            if (normalizeProjectNumber(a.project_number) === normNum) {
+              actual += Number(a.actual_hours) || 0;
+            }
+          });
+          const remaining = Math.max(0, budgeted - actual);
+
+          // Scale radius
+          const maxRemaining = Math.max(1, ...nodes.filter(n => n.remainingHours > 0).map(n => n.remainingHours), remaining);
+          const DEFAULT_R = 25, MAX_R = 55;
+          const radius = remaining > 0 ? DEFAULT_R + Math.sqrt(remaining / maxRemaining) * (MAX_R - DEFAULT_R) : DEFAULT_R;
+
+          nodes.push({
+            id: projId,
+            type: 'project',
+            label: p.project_name || p.project_number,
+            number: p.project_number,
+            data: p,
+            radius: radius,
+            remainingHours: remaining,
+            budgetedHours: budgeted,
+            actualHours: actual,
+            x: center.x + (Math.random() - 0.5) * 400,
+            y: center.y + (Math.random() - 0.5) * 400
+          });
+          added++;
+        }
+      });
+
+      // Also add any links that now connect
+      addMissingLinks();
+      rebuildVisualization();
+      updateStats();
+      showToast('Added ' + added + ' project' + (added !== 1 ? 's' : '') + ' to graph');
+    }
+
+    function loadAllEmployees() {
+      document.getElementById('loadMenu').classList.add('hidden');
+      const center = getViewCenter();
+      let added = 0;
+
+      employees.forEach(e => {
+        const empId = 'emp-' + e.employee_number;
+        if (!nodes.find(n => n.id === empId)) {
+          nodes.push({
+            id: empId,
+            type: 'employee',
+            label: e.name,
+            number: e.employee_number,
+            department: e.department,
+            data: e,
+            radius: 18,
+            x: center.x + (Math.random() - 0.5) * 400,
+            y: center.y + (Math.random() - 0.5) * 400
+          });
+          added++;
+        }
+      });
+
+      addMissingLinks();
+      rebuildVisualization();
+      updateStats();
+      showToast('Added ' + added + ' employee' + (added !== 1 ? 's' : '') + ' to graph');
+    }
+
+    function loadEverything() {
+      document.getElementById('loadMenu').classList.add('hidden');
+      const before = nodes.length;
+      const center = getViewCenter();
+
+      // Add all projects
+      projects.forEach(p => {
+        const normNum = normalizeProjectNumber(p.project_number);
+        const projId = 'proj-' + normNum;
+        if (!nodes.find(n => n.id === projId)) {
+          let budgeted = 0, actual = 0;
+          schedule.forEach(s => {
+            if (s.active !== false && normalizeProjectNumber(s.project_number) === normNum) {
+              budgeted += Number(s.budgeted_hours) || 0;
+            }
+          });
+          actuals.forEach(a => {
+            if (normalizeProjectNumber(a.project_number) === normNum) {
+              actual += Number(a.actual_hours) || 0;
+            }
+          });
+          const remaining = Math.max(0, budgeted - actual);
+          nodes.push({
+            id: projId, type: 'project',
+            label: p.project_name || p.project_number,
+            number: p.project_number, data: p,
+            radius: 25, remainingHours: remaining,
+            budgetedHours: budgeted, actualHours: actual,
+            x: center.x + (Math.random() - 0.5) * 600,
+            y: center.y + (Math.random() - 0.5) * 600
+          });
+        }
+      });
+
+      // Add all employees
+      employees.forEach(e => {
+        const empId = 'emp-' + e.employee_number;
+        if (!nodes.find(n => n.id === empId)) {
+          nodes.push({
+            id: empId, type: 'employee',
+            label: e.name, number: e.employee_number,
+            department: e.department, data: e, radius: 18,
+            x: center.x + (Math.random() - 0.5) * 600,
+            y: center.y + (Math.random() - 0.5) * 600
+          });
+        }
+      });
+
+      // Recalculate project radii now that we know the full set
+      recalcProjectRadii();
+      addMissingLinks();
+      rebuildVisualization();
+      updateStats();
+      showToast('Loaded everything: ' + nodes.filter(n => n.type === 'project').length + ' projects, ' + nodes.filter(n => n.type === 'employee').length + ' employees');
+    }
+
+    function clearUnconnected() {
+      document.getElementById('loadMenu').classList.add('hidden');
+
+      // Find nodes that have no links
+      const connectedIds = new Set();
+      links.forEach(l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        connectedIds.add(srcId);
+        connectedIds.add(tgtId);
+      });
+
+      const before = nodes.length;
+      nodes = nodes.filter(n => connectedIds.has(n.id));
+      const removed = before - nodes.length;
+
+      rebuildVisualization();
+      updateStats();
+      closeSidePanel();
+      showToast('Removed ' + removed + ' unconnected node' + (removed !== 1 ? 's' : ''));
+    }
+
+    function clearAllNodes() {
+      document.getElementById('loadMenu').classList.add('hidden');
+      nodes = [];
+      links = [];
+      rebuildVisualization();
+      updateStats();
+      closeSidePanel();
+      showToast('Graph cleared');
+    }
+
+    // Helper: add any links from teams data that now have both endpoints in the graph
+    function addMissingLinks() {
+      teams.forEach(t => {
+        const projId = 'proj-' + normalizeProjectNumber(t.project_number);
+        const empId = 'emp-' + t.employee_number;
+
+        if (nodes.find(n => n.id === projId) && nodes.find(n => n.id === empId)) {
+          // Check if link already exists
+          const exists = links.find(l => {
+            const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+            const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+            return (srcId === projId && tgtId === empId) || (srcId === empId && tgtId === projId);
+          });
+          if (!exists) {
+            links.push({
+              source: projId,
+              target: empId,
+              phase: t.phase,
+              hours: t.base_hrs_per_week
+            });
+          }
+        }
+      });
+    }
+
+    // Recalculate all project radii based on current nodes
+    function recalcProjectRadii() {
+      const DEFAULT_R = 25, MAX_R = 55;
+      const projectNodes = nodes.filter(n => n.type === 'project');
+      const maxRemaining = Math.max(1, ...projectNodes.map(n => n.remainingHours || 0));
+
+      projectNodes.forEach(n => {
+        if (n.remainingHours > 0) {
+          n.radius = DEFAULT_R + Math.sqrt(n.remainingHours / maxRemaining) * (MAX_R - DEFAULT_R);
+        } else {
+          n.radius = DEFAULT_R;
+        }
+      });
+    }
+
+    // FIX #10: Proper resize handler
+    window.addEventListener('resize', () => {
+      const container = document.getElementById('network-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg.attr('width', width).attr('height', height);
+      if (simulation) {
+        simulation.force('center', d3.forceCenter(width / 2, height / 2));
+        simulation.alpha(0.3).restart();
+      }
+    });
+
+    // ===== DEBUG FUNCTIONS =====
+
+    async function reloadData() {
+      debugLog('Reloading all data...');
+      await loadData();
+      buildGraph();
+      renderNetwork();
+      updateStats();
+      populateDepartmentFilter();
+      debugLog('Reloaded: ' + employees.length + ' employees, ' + projects.length + ' projects, ' + teams.length + ' teams');
+    }
+
+    async function testSupabase() {
+      let output = 'Testing Supabase JS client...<br>';
+      debugLog(output);
+
+      if (!db) {
+        debugLog(output + 'ERROR: Supabase JS client is null. Library may not have loaded.');
+        return;
+      }
+
+      try {
+        output += 'Client initialized: ✓<br>';
+        output += 'Querying employees (limit 5)...<br><br>';
+
+        const { data, error } = await db
+          .from('employees')
+          .select('name, employee_number, department')
+          .limit(5);
+
+        if (error) {
+          output += 'QUERY ERROR: ' + error.message + '<br>';
+          debugLog(output);
+          return;
+        }
+
+        output += '✓ SUCCESS! Got ' + data.length + ' employees<br><br>';
+        data.forEach(function(emp, i) {
+          output += (i + 1) + '. ' + String(emp.name) + ' (' + String(emp.employee_number) + ')<br>';
+        });
+        debugLog(output);
+
+      } catch (e) {
+        debugLog(output + 'ERROR: ' + String(e.message));
+      }
+    }
+
+    function showArrays() {
+      let info = 'Data arrays status:\n';
+      info += 'projects: ' + projects.length + ' items\n';
+      info += 'employees: ' + employees.length + ' items\n';
+      info += 'teams: ' + teams.length + ' items\n';
+      info += 'nodes: ' + nodes.length + ' items\n';
+      info += 'links: ' + links.length + ' items\n';
+
+      if (employees.length > 0) {
+        info += '\nFirst 3 employees:\n';
+        employees.slice(0, 3).forEach(e => {
+          info += '  - ' + e.name + ' (' + e.employee_number + ')\n';
+        });
+      }
+      debugLog(info);
+    }
+
+    // ===== START =====
+    // init() is called by showApp() after authentication
+  </script>
+</body>
+</html>
