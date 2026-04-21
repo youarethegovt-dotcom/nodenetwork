@@ -1785,21 +1785,9 @@
             '</div>'
           : '') +
 
-          // Load Staff button
-          (missingFromGraph.length > 0 ?
-            '<button onclick="loadStaffForProject(\'' + d.number + '\')" ' +
-              'class="w-full mb-4 py-2 px-3 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">' +
-              '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><circle cx="17" cy="7" r="4"/></svg>' +
-              'Load Staff (' + missingFromGraph.length + ' not on graph)' +
-            '</button>'
-          : dbTeamForProject.length > 0 && missingFromGraph.length === 0 ?
-            '<div class="mb-4 text-center text-xs text-green-600 py-1">✓ All ' + dbTeamForProject.length + ' team members on graph</div>'
-          : '') +
-
           // Team Members
           '<div class="mb-4">' +
           '<div class="text-sm text-gray-500 mb-2">Team Members (' + teamMembers.length + ')' +
-          (dbTeamForProject.length > teamMembers.length ? ' <span class="text-xs text-orange-500">(' + (dbTeamForProject.length - teamMembers.length) + ' not shown)</span>' : '') +
           '</div>' +
           '<div class="space-y-2">' +
           (teamMembers.length > 0 ? teamMembers.map(m =>
@@ -1832,14 +1820,6 @@
 
         const totalHours = memberProjects.reduce((sum, p) => sum + (p.hours || 0), 0);
 
-        // Check how many projects this person is on in DB but not on graph
-        const dbProjectsForEmp = teams.filter(t => t.employee_number === d.number);
-        const missingProjects = dbProjectsForEmp.filter(t => 
-          !nodes.find(n => n.id === 'proj-' + normalizeProjectNumber(t.project_number))
-        );
-        // Dedupe by project number
-        const uniqueMissingProjects = [...new Map(missingProjects.map(t => [normalizeProjectNumber(t.project_number), t])).values()];
-
         html = '<div class="mb-4">' +
           '<div class="text-sm text-gray-500">Employee Number</div>' +
           '<div class="font-medium">' + d.number + '</div></div>' +
@@ -1851,19 +1831,8 @@
           '<div class="font-medium">' + totalHours + ' hours' +
           (totalHours > 40 ? ' <span class="text-red-500 text-xs font-medium">⚠ Over 40</span>' : '') +
           '</div></div>' +
-          // Load Projects button
-          (uniqueMissingProjects.length > 0 ?
-            '<button onclick="loadProjectsForEmployee(\'' + d.number + '\')" ' +
-              'class="w-full mb-4 py-2 px-3 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">' +
-              '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>' +
-              'Load Projects (' + uniqueMissingProjects.length + ' not on graph)' +
-            '</button>'
-          : dbProjectsForEmp.length > 0 && uniqueMissingProjects.length === 0 ?
-            '<div class="mb-4 text-center text-xs text-blue-600 py-1">✓ All ' + new Set(dbProjectsForEmp.map(t => normalizeProjectNumber(t.project_number))).size + ' projects on graph</div>'
-          : '') +
           '<div class="mb-4">' +
           '<div class="text-sm text-gray-500 mb-2">Projects (' + memberProjects.length + ')' +
-          (uniqueMissingProjects.length > 0 ? ' <span class="text-xs text-orange-500">(' + uniqueMissingProjects.length + ' not shown)</span>' : '') +
           '</div>' +
           '<div class="space-y-2">' +
           memberProjects.map(p =>
