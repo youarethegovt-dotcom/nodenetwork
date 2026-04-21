@@ -461,6 +461,11 @@
               <button onclick="clearAllNodes()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
                 <span>✕</span> Clear All
               </button>
+              <div class="border-t"></div>
+              <div class="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">VIEW</div>
+              <button onclick="fitToScreen()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2">
+                <span>⊞</span> Fit Everything to Screen
+              </button>
             </div>
           </div>
         </div>
@@ -2555,6 +2560,56 @@
           d3.zoomIdentity
         );
       }
+    }
+
+    function fitToScreen() {
+      document.getElementById('loadMenu').classList.add('hidden');
+      if (!nodes || nodes.length === 0) {
+        showToast('No nodes on graph to fit');
+        return;
+      }
+
+      const container = document.getElementById('network-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const padding = 60;
+
+      // Find bounding box of all nodes
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        const r = n.radius || 20;
+        if (n.x - r < minX) minX = n.x - r;
+        if (n.x + r > maxX) maxX = n.x + r;
+        if (n.y - r < minY) minY = n.y - r;
+        if (n.y + r > maxY) maxY = n.y + r;
+      });
+
+      const nodesWidth = maxX - minX;
+      const nodesHeight = maxY - minY;
+
+      if (nodesWidth === 0 || nodesHeight === 0) return;
+
+      // Calculate scale to fit all nodes with padding
+      const scale = Math.min(
+        (width - padding * 2) / nodesWidth,
+        (height - padding * 2) / nodesHeight,
+        2 // Don't zoom in more than 2x
+      );
+
+      // Calculate translation to center the bounding box
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const translateX = width / 2 - centerX * scale;
+      const translateY = height / 2 - centerY * scale;
+
+      if (svg && svg.__zoom_behavior) {
+        svg.transition().duration(750).call(
+          svg.__zoom_behavior.transform,
+          d3.zoomIdentity.translate(translateX, translateY).scale(scale)
+        );
+      }
+
+      showToast('✓ Fitted ' + nodes.length + ' nodes to screen');
     }
 
     // ===== LOAD / CLEAR GRAPH =====
