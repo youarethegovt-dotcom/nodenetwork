@@ -819,6 +819,51 @@
       return text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
     }
 
+    // Split label into lines for SVG tspan wrapping
+    function wrapLabel(text, maxChars) {
+      if (!text) return [''];
+      if (text.length <= maxChars) return [text];
+      
+      // Try to break at a space, dash, or other natural point near maxChars
+      const words = text.split(/(\s+|-(?=\S))/);
+      const lines = [];
+      let currentLine = '';
+      
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        if ((currentLine + word).length <= maxChars || currentLine === '') {
+          currentLine += word;
+        } else {
+          lines.push(currentLine.trim());
+          currentLine = word;
+          if (lines.length >= 2) {
+            // Max 2 lines — truncate the rest
+            if (i < words.length - 1) {
+              currentLine = truncateLabel(words.slice(i).join(''), maxChars);
+            }
+            break;
+          }
+        }
+      }
+      if (currentLine.trim()) lines.push(currentLine.trim());
+      return lines.length > 0 ? lines : [''];
+    }
+
+    // Apply wrapped label as tspan elements to an SVG text selection
+    function applyWrappedLabels(selection, maxChars) {
+      selection.each(function(d) {
+        const el = d3.select(this);
+        el.text(null); // clear existing text
+        const lines = wrapLabel(d.label, maxChars);
+        lines.forEach((line, i) => {
+          el.append('tspan')
+            .attr('x', 0)
+            .attr('dy', i === 0 ? 0 : '1.15em')
+            .text(line);
+        });
+      });
+    }
+
     // ===== GRAPH BUILDING =====
 
     function buildGraph() {
@@ -1003,8 +1048,8 @@
         .data(nodes)
         .enter().append('text')
         .attr('class', 'node-label')
-        .attr('dy', d => d.radius + 14)
-        .text(d => truncateLabel(d.label, 15));
+        .attr('dy', d => d.radius + 14);
+      applyWrappedLabels(labels, 20);
 
       // Tick
       simulation.on('tick', () => {
@@ -1026,7 +1071,9 @@
 
         labels
           .attr('x', d => d.x)
-          .attr('y', d => d.y);
+          .attr('y', d => d.y)
+          .selectAll('tspan')
+          .attr('x', function() { return d3.select(this.parentNode).attr('x'); });
       });
     }
 
@@ -1600,8 +1647,8 @@
         .data(nodes)
         .enter().append('text')
         .attr('class', 'node-label')
-        .attr('dy', d => d.radius + 14)
-        .text(d => truncateLabel(d.label, 15));
+        .attr('dy', d => d.radius + 14);
+      applyWrappedLabels(labels, 20);
 
       // Update simulation tick to also move hover targets
       simulation.nodes(nodes);
@@ -1627,7 +1674,9 @@
 
         labels
           .attr('x', d => d.x)
-          .attr('y', d => d.y);
+          .attr('y', d => d.y)
+          .selectAll('tspan')
+          .attr('x', function() { return d3.select(this.parentNode).attr('x'); });
       });
 
       simulation.alpha(0.5).restart();
