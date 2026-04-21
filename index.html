@@ -1739,6 +1739,84 @@
 
     // ===== SIDE PANEL =====
 
+    function buildRelatedStaff(employeeNumber) {
+      // Find all projects this employee is assigned to (from DB teams data)
+      const myProjects = new Set(
+        teams.filter(t => t.employee_number === employeeNumber)
+          .map(t => normalizeProjectNumber(t.project_number))
+      );
+
+      if (myProjects.size === 0) return '';
+
+      // Count shared projects with every other employee
+      const sharedCounts = {};
+      teams.forEach(t => {
+        if (t.employee_number === employeeNumber) return;
+        const normProj = normalizeProjectNumber(t.project_number);
+        if (myProjects.has(normProj)) {
+          if (!sharedCounts[t.employee_number]) {
+            sharedCounts[t.employee_number] = {
+              number: t.employee_number,
+              name: t.employee_name,
+              count: 0,
+              projects: new Set()
+            };
+          }
+          sharedCounts[t.employee_number].count++;
+          sharedCounts[t.employee_number].projects.add(normProj);
+        }
+      });
+
+      // Dedupe: count unique shared projects, not assignment rows
+      Object.values(sharedCounts).forEach(s => {
+        s.sharedProjects = s.projects.size;
+      });
+
+      // Sort by number of shared projects descending, take top 8
+      const ranked = Object.values(sharedCounts)
+        .sort((a, b) => b.sharedProjects - a.sharedProjects)
+        .slice(0, 8);
+
+      if (ranked.length === 0) return '';
+
+      // Look up department for each
+      ranked.forEach(r => {
+        const emp = employees.find(e => e.employee_number === r.number);
+        r.department = emp ? (emp.department || '') : '';
+      });
+
+      const maxShared = ranked[0].sharedProjects;
+
+      return '<div class="mb-4">' +
+        '<div class="text-sm text-gray-500 mb-2">Related Staff</div>' +
+        '<div class="space-y-1.5">' +
+        ranked.map(r => {
+          const barWidth = Math.round((r.sharedProjects / myProjects.size) * 100);
+          const projectNames = Array.from(r.projects).map(pNum => {
+            const proj = projects.find(p => normalizeProjectNumber(p.project_number) === pNum);
+            return proj ? proj.project_name : pNum;
+          });
+          return '<div class="p-2 rounded bg-gray-50 hover:bg-gray-100 cursor-default" ' +
+            'title="Shared projects: ' + projectNames.join(', ') + '">' +
+            '<div class="flex items-center justify-between mb-1">' +
+              '<div class="flex-1 min-w-0">' +
+                '<div class="font-medium text-sm truncate">' + (r.name || r.number) + '</div>' +
+                '<div class="text-xs text-gray-400">' + (r.department || '') + '</div>' +
+              '</div>' +
+              '<div class="text-xs font-semibold text-purple-600 ml-2 whitespace-nowrap">' +
+                r.sharedProjects + '/' + myProjects.size +
+              '</div>' +
+            '</div>' +
+            '<div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">' +
+              '<div class="h-full rounded-full bg-purple-400" style="width:' + barWidth + '%"></div>' +
+            '</div>' +
+          '</div>';
+        }).join('') +
+        '</div>' +
+        '<div class="text-xs text-gray-400 mt-1">Ranked by shared projects out of ' + myProjects.size + '</div>' +
+      '</div>';
+    }
+
     function showSidePanel(d, connections) {
       const panel = document.getElementById('sidePanel');
       const title = document.getElementById('panelTitle');
@@ -1944,7 +2022,9 @@
               '</button>' +
             '</div></div>'
           ).join('') +
-          '</div></div>';
+          '</div></div>' +
+          // Related Staff section
+          buildRelatedStaff(d.number);
       }
 
       content.innerHTML = html;
@@ -2572,44 +2652,66 @@
       const container = document.getElementById('network-container');
       const width = container.clientWidth;
       const height = container.clientHeight;
-      const padding = 60;
+      const padding = 80;
 
-      // Find bounding box of all nodes
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      nodes.forEach(n => {
-        const r = n.radius || 20;
-        if (n.x - r < minX) minX = n.x - r;
-        if (n.x + r > maxX) maxX = n.x + r;
-        if (n.y - r < minY) minY = n.y - r;
-        if (n.y + r > maxY) maxY = n.y + r;
-      });
-
-      const nodesWidth = maxX - minX;
-      const nodesHeight = maxY - minY;
-
-      if (nodesWidth === 0 || nodesHeight === 0) return;
-
-      // Calculate scale to fit all nodes with padding
-      const scale = Math.min(
-        (width - padding * 2) / nodesWidth,
-        (height - padding * 2) / nodesHeight,
-        2 // Don't zoom in more than 2x
-      );
-
-      // Calculate translation to center the bounding box
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
-      const translateX = width / 2 - centerX * scale;
-      const translateY = height / 2 - centerY * scale;
-
+      // Reset zoom to identity first
       if (svg && svg.__zoom_behavior) {
-        svg.transition().duration(750).call(
-          svg.__zoom_behavior.transform,
-          d3.zoomIdentity.translate(translateX, translateY).scale(scale)
-        );
+        svg.call(svg.__zoom_behavior.transform, d3.zoomIdentity);
       }
 
-      showToast('✓ Fitted ' + nodes.length + ' nodes to screen');
+      // Find current bounding box of all nodes
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        if (n.x < minX) minX = n.x;
+        if (n.x > maxX) maxX = n.x;
+        if (n.y < minY) minY = n.y;
+        if (n.y > maxY) maxY = n.y;
+      });
+
+      const nodesWidth = maxX - minX || 1;
+      const nodesHeight = maxY - minY || 1;
+
+      // Calculate scale to map node positions into the visible area
+      const scaleX = (width - padding * 2) / nodesWidth;
+      const scaleY = (height - padding * 2) / nodesHeight;
+      const scale = Math.min(scaleX, scaleY);
+
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const targetCenterX = width / 2;
+      const targetCenterY = height / 2;
+
+      // Physically move each node's coordinates
+      nodes.forEach(n => {
+        n.x = targetCenterX + (n.x - centerX) * scale;
+        n.y = targetCenterY + (n.y - centerY) * scale;
+        // Also fix the node in place so simulation doesn't scatter them
+        n.fx = n.x;
+        n.fy = n.y;
+      });
+
+      // Update the visualization
+      simulation.alpha(0).stop();
+
+      // Update positions immediately
+      node.attr('cx', d => d.x).attr('cy', d => d.y);
+      labels.attr('x', d => d.x).attr('y', d => d.y)
+        .selectAll('tspan').attr('x', function() { return d3.select(this.parentNode).attr('x'); });
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      linkGroup.selectAll('.link-hover-target')
+          .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+
+      // Release the fixed positions after a moment so dragging still works
+      setTimeout(() => {
+        nodes.forEach(n => {
+          n.fx = null;
+          n.fy = null;
+        });
+      }, 500);
+
+      showToast('✓ Repositioned ' + nodes.length + ' nodes to fit screen');
     }
 
     // ===== LOAD / CLEAR GRAPH =====
