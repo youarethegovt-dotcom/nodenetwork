@@ -766,10 +766,10 @@
         setLoadingStatus('Loading projects...');
         const { data: projData, error: projError } = await db
           .from('projects')
-          .select('project_number, project_name, pm, dm, principal')
+          .select('project_number, project_name, pm, dm, principal, archived')
           .order('project_number');
         if (projError) throw new Error('Projects: ' + projError.message);
-        projects = projData || [];
+        projects = (projData || []).filter(p => !p.archived);
 
         setLoadingStatus('Loading team assignments...');
         const { data: teamData, error: teamError } = await db
