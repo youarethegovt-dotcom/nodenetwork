@@ -400,6 +400,42 @@
           <!-- Reset -->
           <button onclick="resetView()" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-100">Reset View</button>
 
+          <!-- Add Project -->
+          <div class="relative" id="addProjectMenuContainer">
+            <button onclick="toggleAddProjectMenu()" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 flex items-center gap-1">
+              ➕ Add Project
+            </button>
+            <div id="addProjectMenu" class="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 hidden w-80 overflow-hidden">
+              <div class="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">NEW PROJECT</div>
+              <div class="p-3 space-y-2">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Project Number *</label>
+                  <input type="text" id="netNewProjectNumber" placeholder="e.g., 25300.00" class="w-full border rounded px-2 py-1.5 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Project Name *</label>
+                  <input type="text" id="netNewProjectName" placeholder="e.g., New Medical Center" class="w-full border rounded px-2 py-1.5 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Principal</label>
+                  <input type="text" id="netNewPrincipal" placeholder="Optional" class="w-full border rounded px-2 py-1.5 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Design Manager</label>
+                  <input type="text" id="netNewDM" placeholder="Optional" class="w-full border rounded px-2 py-1.5 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Project Manager</label>
+                  <input type="text" id="netNewPM" placeholder="Optional" class="w-full border rounded px-2 py-1.5 text-sm">
+                </div>
+                <div class="flex gap-2 pt-1">
+                  <button onclick="submitNewProject()" id="netAddProjectBtn" class="flex-1 px-3 py-2 bg-purple-600 text-white rounded text-sm font-medium hover:bg-purple-700">Add Project</button>
+                  <button onclick="toggleAddProjectMenu()" class="px-3 py-2 bg-gray-100 text-gray-600 rounded text-sm hover:bg-gray-200">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Load / Clear All -->
           <div class="relative" id="loadMenuContainer">
             <button onclick="toggleLoadMenu()" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-100 flex items-center gap-1">
@@ -2526,13 +2562,124 @@
     function toggleLoadMenu() {
       const menu = document.getElementById('loadMenu');
       menu.classList.toggle('hidden');
+      // Close add project menu if open
+      document.getElementById('addProjectMenu').classList.add('hidden');
     }
 
-    // Close menu when clicking outside
+    function toggleAddProjectMenu() {
+      const menu = document.getElementById('addProjectMenu');
+      menu.classList.toggle('hidden');
+      // Close load menu if open
+      document.getElementById('loadMenu').classList.add('hidden');
+    }
+
+    async function submitNewProject() {
+      const projectNumber = document.getElementById('netNewProjectNumber').value.trim();
+      const projectName = document.getElementById('netNewProjectName').value.trim();
+      const principal = document.getElementById('netNewPrincipal').value.trim();
+      const dm = document.getElementById('netNewDM').value.trim();
+      const pm = document.getElementById('netNewPM').value.trim();
+
+      if (!projectNumber || !projectName) {
+        showToast('⚠ Project Number and Name are required');
+        return;
+      }
+
+      // Check if already exists
+      const exists = projects.find(p => normalizeProjectNumber(p.project_number) === normalizeProjectNumber(projectNumber));
+      if (exists) {
+        showToast('⚠ Project ' + projectNumber + ' already exists');
+        return;
+      }
+
+      const btn = document.getElementById('netAddProjectBtn');
+      btn.disabled = true;
+      btn.textContent = 'Adding...';
+
+      try {
+        const insertBody = {
+          project_number: projectNumber,
+          project_name: projectName,
+          principal: principal || null,
+          dm: dm || null,
+          pm: pm || null
+        };
+
+        const response = await fetch(SUPABASE_URL + '/rest/v1/projects', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(insertBody)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error('Failed to add project:', response.status, errText);
+          throw new Error(errText);
+        }
+
+        // Add to local projects array
+        const newProj = {
+          project_number: projectNumber,
+          project_name: projectName,
+          principal: principal || null,
+          dm: dm || null,
+          pm: pm || null
+        };
+        projects.push(newProj);
+
+        // Add node to graph
+        const center = getViewCenter();
+        const normNum = normalizeProjectNumber(projectNumber);
+        nodes.push({
+          id: 'proj-' + normNum,
+          type: 'project',
+          label: projectName,
+          number: projectNumber,
+          data: newProj,
+          radius: 20,
+          remainingHours: 0,
+          budgetedHours: 0,
+          actualHours: 0,
+          x: center.x + (Math.random() - 0.5) * 100,
+          y: center.y + (Math.random() - 0.5) * 100
+        });
+
+        rebuildVisualization();
+        updateStats();
+
+        // Clear form and close menu
+        document.getElementById('netNewProjectNumber').value = '';
+        document.getElementById('netNewProjectName').value = '';
+        document.getElementById('netNewPrincipal').value = '';
+        document.getElementById('netNewDM').value = '';
+        document.getElementById('netNewPM').value = '';
+        toggleAddProjectMenu();
+
+        showToast('✓ Added project: ' + projectName);
+
+      } catch (err) {
+        console.error('Add project error:', err);
+        showToast('⚠ Failed to add project. Check console.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Add Project';
+      }
+    }
+
+    // Close menus when clicking outside
     document.addEventListener('click', function(e) {
-      const container = document.getElementById('loadMenuContainer');
-      if (container && !container.contains(e.target)) {
+      const loadContainer = document.getElementById('loadMenuContainer');
+      if (loadContainer && !loadContainer.contains(e.target)) {
         document.getElementById('loadMenu').classList.add('hidden');
+      }
+      const addContainer = document.getElementById('addProjectMenuContainer');
+      if (addContainer && !addContainer.contains(e.target)) {
+        document.getElementById('addProjectMenu').classList.add('hidden');
       }
     });
 
